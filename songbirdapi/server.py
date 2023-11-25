@@ -4,6 +4,7 @@ from fastapi.logger import logger
 
 from .api.routers import itunes, youtube, songs
 from . import settings
+from .version import version
 
 app = FastAPI()
 app.include_router(itunes.router)
@@ -18,4 +19,4 @@ logger.setLevel(uvicorn_logger.level)
 
 @app.get("/")
 async def root():
-    return {f"message": f"welcome to songbird!"}
+    return {f"message": f"welcome to songbirdapi {version}!"}

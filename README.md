@@ -19,10 +19,10 @@ with the following `.vscode/launch.json` configuration:
 			"type": "python",
 			"request": "launch",
 			"module": "uvicorn",
-			"args": ["songbird.server:app", "--reload", "--log-level", "debug"],
+			"args": ["songbirdapi.server:app", "--reload", "--log-level", "debug"],
 			"jinja": true,
 			"justMyCode": true,
-			"envFile": "${workspaceFolder}/.env"
+			"envFile": "./dev.env"
 		},
 	]
 },

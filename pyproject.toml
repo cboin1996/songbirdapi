@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "songbirdapi"
+authors = [
+    {name = "Christian Boin"},
+]
+version = "0.0.1"
+description = "Music download api"
+readme = "README.md"
+requires-python = ">=3.9"

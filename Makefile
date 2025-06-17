@@ -15,7 +15,6 @@ else
 	@echo "Creating template $(ENV).env file"
 # conditionally setup env based on app choice via APP_NAME env var.
 	echo 'RUN_LOCAL=false' > $(ENV).env
-	endif
 endif
 
 # variables as a list, required for pytest targets
@@ -28,41 +27,75 @@ setup:
 	python3 -m venv venv
 	@echo activate your venv with 'source venv/bin/activate'
 
-# /app/data folder is legacy for backwards compatability
-# from the times before songbird was split across
-# core, cli and api.
-.PHONY: volumesinit
-volumesinit:
-	mkdir -p ./$(APP_NAME)/data/dump
-	mkdir -p ./$(APP_NAME)/data/local_chromium
-	mkdir -p ./$(APP_NAME)/data/gdrive
-
-.PHONY: volumesclean
-volumesclean:
-	rm -rf ./$(APP_NAME)/data/dump
-	rm -rf ./$(APP_NAME)/data/local_chromium
-	rm -rf ./$(APP_NAME)/data/gdrive
-
 .PHONY: requirements
 requirements:
 	pip install black isort click
 	pip install -r $(APP_NAME)/requirements.txt
-	pip install -e ../songbirdcore
 
-.PHONY: build
-build:
-	docker build -t $(APP_NAME):latest $(APP_NAME)
+local-run-songbirdapi:
+	uvicorn $(APP_NAME).server:app --host 0.0.0.0
 
-.PHONY: clean
-clean:
+VALKEY_PERSISTENCE_DIR=./data/valkey
+SONGBIRD_API_PERSISTENCE_DIR=./data/songbirdapi/
+SONGBIRD_API_DOWNLOADS_DIR=$(SONGBIRD_API_PERSISTENCE_DIR)/downloads
+.PHONY: volumes
+volumes:
+	mkdir -p $(VALKEY_PERSISTENCE_DIR) || true
+	mkdir -p $(SONGBIRD_API_PERSISTENCE_DIR) || true
+	mkdir -p $(SONGBIRD_API_DOWNLOADS_DIR) || true
+
+.PHONY: docker-build
+docker-build:
+	docker build -t $(APP_NAME):latest .
+
+DOCKER_VALKEY_NAME=$(APP_NAME)-valkey-ext
+DOCKER_NETWORK_NAME=$(APP_NAME)
+docker-network:
+	docker network create $(DOCKER_NETWORK_NAME) || true
+
+.PHONY: run-valkey
+docker-run-valkey: volumes docker-network
+	@echo starting valkey
+	docker run --network $(DOCKER_NETWORK_NAME) --name $(DOCKER_VALKEY_NAME) -p 6379:6379 -v $(VALKEY_PERSISTENCE_DIR):/data -d valkey/valkey-extensions
+
+.PHONY: docker-connect-valkey
+docker-connect-valkey:
+	docker run -it --network $(DOCKER_NETWORK_NAME) --rm valkey/valkey-extensions valkey-cli -h $(DOCKER_VALKEY_NAME)
+
+.PHONY: docker-stop-valkey
+docker-stop-valkey:
+	docker kill $(DOCKER_VALKEY_NAME) || true
+	docker rm $(DOCKER_VALKEY_NAME) || true
+
+.PHONY: docker-clean-valkey
+docker-clean-valkey:
+	docker rm $(DOCKER_VALKEY_NAME) || true
+
+.PHONY: docker-run-songbirdapi
+docker-run-songbirdapi:
+	docker run --network $(DOCKER_NETWORK_NAME) --env-file $(ENV).env -p 8000:8000 $(APP_NAME):latest -v $(SONGBIRD_API_DOWNLOADS_DIR):/songbirdapi/downloads
+
+.PHONY: docker-clean-songbirdapi
+docker-clean-songbirdapi:
+	docker rm $(APP_NAME) || true
+	docker network rm $(APP_NAME)
+
+.PHONY: docker-stop-songbirdapi
+docker-stop-songbirdapi:
+	docker kill $(APP_NAME) || true
 	docker rm $(APP_NAME) || true
 
-.PHONY: stop
-stop:
-	docker kill $(APP_NAME)
+.PHONY: docker-run-all
+docker-run-all: docker-run-valkey docker-run-songbirdapi
 
-.PHONY: dev
-dev: clean build run
+.PHONY: docker-clean-all
+docker-clean-all: docker-stop-all docker-clean-valkey docker-clean-songbirdapi
+
+.PHONY: docker-stop-all
+docker-stop-all: docker-stop-valkey docker-stop-songbirdapi
+
+.PHONY: docker-dev
+docker-dev: docker-clean-all docker-build-all docker-run-all
 
 lint:
 	black $(APP_NAME)/.

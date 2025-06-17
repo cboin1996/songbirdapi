@@ -1,22 +1,22 @@
 import os
 import sys
-from datetime import datetime
-from typing import List, Optional
-
-import pydantic
-from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 import sys
+from typing import List
 
 
 class SongbirdServerConfig(BaseSettings):
     """Configuration using .env file or defaults declared in here"""
 
     version: str = ""
-    run_local: bool = False
     root_path: str = sys.path[0]
+    downloads_dir: str = os.path.join(root_path, "downloads")
+    dirs: List[str] = [downloads_dir]
+    api_key: str
+    valkey_host: str = "localhost"
+    valkey_port: int = 6379
 
     class Config:
-        config_path = os.path.join(os.path.dirname(sys.path[0]), ".env")
+        config_path = os.path.join(os.path.dirname(sys.path[0]), f"{os.getenv("ENV", "")}.env")
         env_file = config_path
         env_file_encoding = "utf-8"

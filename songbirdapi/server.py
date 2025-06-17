@@ -2,17 +2,17 @@ import logging
 from fastapi import Depends, FastAPI
 from fastapi.logger import logger
 import os
-from valkey.commands.json.path import Path
-import valkey.commands.search.aggregation as aggregations
-import valkey.commands.search.reducers as reducers
-from valkey.commands.search.field import TagField, NumericField
-from valkey.commands.search.indexDefinition import IndexDefinition, IndexType
-from valkey.commands.search.query import NumericFilter, Query
+from redis.commands.json.path import Path
+import redis.commands.search.aggregation as aggregations
+import redis.commands.search.reducers as reducers
+from redis.commands.search.field import TagField, NumericField
+from redis.commands.search.index_definition import IndexDefinition, IndexType
+from redis.commands.search.query import NumericFilter, Query
 
 
-from songbirdapi.dependencies import load_settings, load_valkey
+from songbirdapi.dependencies import load_settings, load_redis
 
-from .dbclient import ValkeyClient
+from .dbclient import RedisClient
 
 from .routers import itunes, downloads, songs, auth
 from .version import version
@@ -35,7 +35,7 @@ logger.setLevel(uvicorn_logger.level)
 
 async def initialize_db():
     settings = load_settings()
-    db = ValkeyClient(host=settings.valkey_host, port=settings.valkey_port)
+    db = RedisClient(host=settings.redis_host, port=settings.redis_port)
     schema = (
         TagField("$.song.trackName", as_name="trackName"),
         TagField("$.song.artistName", as_name="artistName"),
@@ -51,7 +51,12 @@ async def initialize_db():
         TagField("$.song.releaseDate", as_name="releaseDate"),
         TagField("$.song.releaseDateKey", as_name="releaseDateKey")
     )
-    await db.create_index(schema, definition=IndexDefinition(prefix=["song:"], index_type=IndexType.JSON))
+    # TODO: name index? by default it is created as b'idx'
+    # FIX THIS LOGIC
+    res = await db.list_indices()
+    if res is not None and b'idx' not in res:
+        res = await db.create_index(schema, definition=IndexDefinition(prefix=["song:"], index_type=IndexType.JSON))
+        uvicorn_logger.info(f"songs index initialized {res}")
 
 @app.on_event("startup")
 async def startup_event():

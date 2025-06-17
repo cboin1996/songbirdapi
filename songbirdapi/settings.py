@@ -13,8 +13,8 @@ class SongbirdServerConfig(BaseSettings):
     downloads_dir: str = os.path.join(root_path, "downloads")
     dirs: List[str] = [downloads_dir]
     api_key: str
-    valkey_host: str = "localhost"
-    valkey_port: int = 6379
+    redis_host: str = "localhost"
+    redis_port: int = 6379
 
     class Config:
         config_path = os.path.join(os.path.dirname(sys.path[0]), f"{os.getenv("ENV", "")}.env")

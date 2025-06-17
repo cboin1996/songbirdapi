@@ -35,7 +35,7 @@ requirements:
 local-run-songbirdapi:
 	uvicorn $(APP_NAME).server:app --host 0.0.0.0
 
-VALKEY_PERSISTENCE_DIR=./data/valkey
+VALKEY_PERSISTENCE_DIR=./data/redis/
 SONGBIRD_API_PERSISTENCE_DIR=./data/songbirdapi/
 SONGBIRD_API_DOWNLOADS_DIR=$(SONGBIRD_API_PERSISTENCE_DIR)/downloads
 .PHONY: volumes
@@ -48,27 +48,28 @@ volumes:
 docker-build:
 	docker build -t $(APP_NAME):latest .
 
-DOCKER_VALKEY_NAME=$(APP_NAME)-valkey-ext
+DOCKER_VALKEY_NAME=$(APP_NAME)-redis-ext
 DOCKER_NETWORK_NAME=$(APP_NAME)
 docker-network:
 	docker network create $(DOCKER_NETWORK_NAME) || true
 
-.PHONY: run-valkey
-docker-run-valkey: volumes docker-network
-	@echo starting valkey
-	docker run --network $(DOCKER_NETWORK_NAME) --name $(DOCKER_VALKEY_NAME) -p 6379:6379 -v $(VALKEY_PERSISTENCE_DIR):/data -d valkey/valkey-extensions
+.PHONY: run-redis
+docker-run-redis: volumes docker-network
+	@echo starting redis
+	# TODO: turn on persistence, and validate it works
+	docker run --network $(DOCKER_NETWORK_NAME) --name $(DOCKER_VALKEY_NAME) -p 6379:6379 -v $(VALKEY_PERSISTENCE_DIR):/data -d redis redis-server --save 10 1
 
-.PHONY: docker-connect-valkey
-docker-connect-valkey:
-	docker run -it --network $(DOCKER_NETWORK_NAME) --rm valkey/valkey-extensions valkey-cli -h $(DOCKER_VALKEY_NAME)
+.PHONY: docker-connect-redis
+docker-connect-redis:
+	docker run -it --network $(DOCKER_NETWORK_NAME) --rm redis redis-cli -h $(DOCKER_VALKEY_NAME)
 
-.PHONY: docker-stop-valkey
-docker-stop-valkey:
+.PHONY: docker-stop-redis
+docker-stop-redis:
 	docker kill $(DOCKER_VALKEY_NAME) || true
 	docker rm $(DOCKER_VALKEY_NAME) || true
 
-.PHONY: docker-clean-valkey
-docker-clean-valkey:
+.PHONY: docker-clean-redis
+docker-clean-redis:
 	docker rm $(DOCKER_VALKEY_NAME) || true
 
 .PHONY: docker-run-songbirdapi
@@ -86,13 +87,13 @@ docker-stop-songbirdapi:
 	docker rm $(APP_NAME) || true
 
 .PHONY: docker-run-all
-docker-run-all: docker-run-valkey docker-run-songbirdapi
+docker-run-all: docker-run-redis docker-run-songbirdapi
 
 .PHONY: docker-clean-all
-docker-clean-all: docker-stop-all docker-clean-valkey docker-clean-songbirdapi
+docker-clean-all: docker-stop-all docker-clean-redis docker-clean-songbirdapi
 
 .PHONY: docker-stop-all
-docker-stop-all: docker-stop-valkey docker-stop-songbirdapi
+docker-stop-all: docker-stop-redis docker-stop-songbirdapi
 
 .PHONY: docker-dev
 docker-dev: docker-clean-all docker-build-all docker-run-all

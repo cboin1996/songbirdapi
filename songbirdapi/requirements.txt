@@ -9,7 +9,7 @@ cssselect==1.2.0
 deprecation==2.1.0
 eyeD3==0.9.8
 fake-useragent==2.0.3
-fastapi==0.115.12
+fastapi==0.115.13
 filetype==1.2.0
 google-api-core==2.25.0
 google-api-python-client==2.172.0
@@ -21,7 +21,6 @@ greenlet==3.1.1
 h11==0.16.0
 httplib2==0.22.0
 idna==3.10
-libvalkey==4.0.1
 lxml==5.3.0
 lxml_html_clean==0.4.1
 mutagen==1.47.0

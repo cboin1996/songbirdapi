@@ -25,6 +25,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build
+        if: success()  && github.event_name == 'pull_request' # trigger only a build on PR's.
         uses: docker/build-push-action@v6
         with:
           platforms: linux/amd64,linux/arm64
@@ -33,6 +34,7 @@ jobs:
           cache-from: type=registry,ref=${DOCKER_IMAGE}:buildcache
           cache-to: type=registry,ref=${DOCKER_IMAGE}:buildcache,mode=max
       - name: Build and Push
+        if: success() && (github.event_name == 'push' || startsWith(github.ref, 'refs/tags/'))  # only trigger a build and push to docker registry on tag or commit sha off
         uses: docker/build-push-action@v6
         with:
           platforms: linux/amd64,linux/arm64

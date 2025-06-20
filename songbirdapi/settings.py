@@ -21,6 +21,8 @@ class SongbirdServerConfig(BaseSettings):
     redis_song_id_prefix: str = "song-id"
 
     class Config:
-        config_path = os.path.join(os.path.dirname(sys.path[0]), f"{os.getenv("ENV", "")}.env")
+        config_path = os.path.join(
+            os.path.dirname(sys.path[0]), f"{os.getenv("ENV", "")}.env"
+        )
         env_file = config_path
         env_file_encoding = "utf-8"

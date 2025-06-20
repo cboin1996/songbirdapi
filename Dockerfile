@@ -23,16 +23,7 @@ FROM ubuntu:${UBUNTU_VERSION} AS build-image
 ENV PATH="/venv/bin:$PATH"
 
 WORKDIR /songbirdapi
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg python3-pip \
-    # playwright deps
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libatspi2.0-0 \
-    libxcomposite1 \
-    libxdamage1 && \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg python3-pip && \
     # clear cache
     rm -rf /var/lib/apt/lists/*
 
@@ -42,8 +33,8 @@ COPY --from=builder /venv /venv
 COPY ./songbirdapi/ ./songbirdapi
 COPY pyproject.toml .
 
-# install package locally, and setup playwright
-RUN pip install . && playwright install chromium
+# install deps locally
+RUN pip --no-cache-dir install .
 
 EXPOSE 8000
 ENTRYPOINT ["uvicorn", "songbirdapi.server:app", "--host", "0.0.0.0"]

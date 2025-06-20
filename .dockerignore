@@ -1,3 +1,21 @@
-*
-!songbirdapi
-!pyproject.toml
+# Vscode
+.vscode
+
+# Python
+__pycache__
+venv
+# ENV files
+*.env
+*.egg-info
+
+# Taskfile
+.task
+
+# Work directories
+app
+data
+data/downloads
+
+# Secrets
+credentials.json
+token.json

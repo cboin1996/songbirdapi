@@ -1,15 +1,18 @@
 from http import HTTPStatus
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.logger import logger
-from typing import Optional
+from typing import List, Optional, Set
 from fastapi.responses import FileResponse
 from songbirdcore import youtube
 from songbirdcore import itunes
-from pydantic import BaseModel
+from songbirdcore.models.itunes_api import ItunesApiSongModel
+from pydantic import BaseModel, Json
 import uuid
 import os
+
+from songbirdapi.dbclient import RedisClient
 from ..settings import SongbirdServerConfig
-from ..dependencies import load_settings
+from ..dependencies import load_redis, load_settings, process_song_url
 import logging
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
@@ -21,41 +24,79 @@ router = APIRouter(
     prefix="/download",
     tags=["download"],
 )
+config = load_settings()
+db = load_redis(config)
 
-from songbirdcore.models.itunes_api import ItunesApiSongModel
 class DownloadBody(BaseModel):
     url: str
-    song_properties: Optional[ItunesApiSongModel]
+    ignore_cache: bool = False
+    """override cache check, downloading same song to new file"""
 
-@router.post("/download", response_model=None)
+class DownloadResponse(BaseModel):
+    song_ids: Set[str]
+
+class DownloadCachedSong(BaseModel):
+    file_path: str
+    url: str
+    properties: Optional[Json[ItunesApiSongModel]] = None
+
+@router.post("/")
 async def download(
     body: DownloadBody,
-    config: SongbirdServerConfig = Depends(load_settings)
-):
-    file_id = str(uuid.uuid4())
-    file_path = os.path.join(config.downloads_dir, file_id)
-    embed_thumbnail = False
-    if not body:
-        embed_thumbnail = True
+) -> DownloadResponse:
+    # split off any playlists from youtube
+    # TODO: add logic to songbirdcore?
+    url = process_song_url(body.url)
+    res = await db.smembers(config.redis_song_url_prefix, url)
+    if res and not body.ignore_cache:
+        logger.info(f"returning cached values {res}")
+        return DownloadResponse(song_ids=res)
 
-    result = youtube.run_download(
-        url=body.url,
+    song_id = str(uuid.uuid4())
+    file_path = os.path.join(config.downloads_dir, song_id)
+    file_path = youtube.run_download(
+        url=url,
         file_path_no_format=file_path,
         file_format="mp3",
-        embed_thumbnail=embed_thumbnail
+        embed_thumbnail=True
     )
-    if not result:
+
+    if not file_path:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Could not perform download of song at url {body.url}"
+            detail=f"Could not perform download of song at url {url}"
         )
-    if not body.song_properties: 
-        return FileResponse(file_path)
 
-    result = itunes.mp3ID3Tagger(file_path, body.song_properties)
+    # we store two ways to lookup, one mapping URL->song_id,
+    response = await db.sadd(config.redis_song_url_prefix, url, song_id)
+    # the other via uuid which
+    # stores more nested data about a song
+    uuid_cached_song = DownloadCachedSong(
+        url=url,
+        file_path=file_path
+    ).model_dump(exclude_none=True)
+    response = await db.hset(config.redis_song_id_prefix, song_id, uuid_cached_song)
+    logger.info(f"returning downloaded song {song_id}")
+    return DownloadResponse(song_ids={song_id})
 
-    if not result:
+@router.get("/{id}")
+async def get_download(id: str):
+    res: Optional[DownloadCachedSong] = await db.hgetall(config.redis_song_id_prefix, id, DownloadCachedSong)
+    if res and os.path.exists(res.file_path):
+        return FileResponse(res.file_path)
+    else:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Could not tag file with properties from body {body.song_properties.model_dump_json()}"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Could not find song with id {id}"
         )
+
+@router.delete("/{id}")
+async def delete_download(id: str):
+    res: Optional[DownloadCachedSong] = await db.hgetall(config.redis_song_id_prefix, id, DownloadCachedSong)
+    file_path = os.path.join(config.downloads_dir, id)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+    if res:
+        await db.srem(config.redis_song_url_prefix, res.url, id)
+    await db.delete(config.redis_song_id_prefix, id)
+    await db.delete(config.redis_song_index_prefix, id)

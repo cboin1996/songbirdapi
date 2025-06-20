@@ -6,7 +6,6 @@
 
 # Python
 __pycache__
-requirements.txt.blank
 venv
 *.egg-info
 
@@ -17,6 +16,7 @@ venv
 # Work directories
 app
 data
+data/downloads
 
 # Secrets
 credentials.json

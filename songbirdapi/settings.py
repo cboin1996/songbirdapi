@@ -10,11 +10,15 @@ class SongbirdServerConfig(BaseSettings):
 
     version: str = ""
     root_path: str = sys.path[0]
-    downloads_dir: str = os.path.join(root_path, "downloads")
+    downloads_dir: str = os.path.join(root_path, "data", "downloads")
     dirs: List[str] = [downloads_dir]
     api_key: str
     redis_host: str = "localhost"
     redis_port: int = 6379
+    redis_song_index_name: str = "idx:songs"
+    redis_song_index_prefix: str = "properties"
+    redis_song_url_prefix: str = "song-url"
+    redis_song_id_prefix: str = "song-id"
 
     class Config:
         config_path = os.path.join(os.path.dirname(sys.path[0]), f"{os.getenv("ENV", "")}.env")

@@ -15,7 +15,7 @@ api_key = APIKeyHeader(name="x-api-key")
 
 async def handle_api_key(req: Request, key: str = Security(api_key), config: SongbirdServerConfig = Depends(load_settings)):
     if key != config.api_key:
-        return HTTPException(
+        raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API Key"
         )

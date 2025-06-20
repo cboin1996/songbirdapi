@@ -13,6 +13,6 @@ router = APIRouter(
 )
 
 
-@router.get("/songs", response_model=None)
+@router.get("/", response_model=None)
 async def songs():
     pass

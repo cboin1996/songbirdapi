@@ -74,7 +74,7 @@ docker-clean-redis:
 
 .PHONY: docker-run-songbirdapi
 docker-run-songbirdapi:
-	docker run --network $(DOCKER_NETWORK_NAME) --env-file $(ENV).env -p 8000:8000 $(APP_NAME):latest -v $(SONGBIRD_API_DOWNLOADS_DIR):/songbirdapi/downloads
+	docker run --network $(DOCKER_NETWORK_NAME) --env-file docker.env -p 8000:8000 -v $(SONGBIRD_API_DOWNLOADS_DIR):/songbirdapi/downloads $(APP_NAME):latest
 
 .PHONY: docker-clean-songbirdapi
 docker-clean-songbirdapi:

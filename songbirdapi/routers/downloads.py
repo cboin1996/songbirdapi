@@ -59,7 +59,7 @@ async def download(
     song_id = str(uuid.uuid4())
     file_path = os.path.join(config.downloads_dir, song_id)
     file_path = youtube.run_download(
-        url=url, file_path_no_format=file_path, file_format="mp3", embed_thumbnail=True
+        url=url, file_path_no_format=file_path, file_format="mp3", embed_thumbnail=False
     )
 
     if not file_path:

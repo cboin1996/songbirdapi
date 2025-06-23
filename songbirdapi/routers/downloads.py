@@ -1,12 +1,14 @@
+import enum
 from http import HTTPStatus
+import json
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.logger import logger
-from typing import List, Optional, Set
+from typing import Any, List, Optional, Set, Union
 from fastapi.responses import FileResponse
 from songbirdcore import youtube
 from songbirdcore import itunes
 from songbirdcore.models.itunes_api import ItunesApiSongModel
-from pydantic import BaseModel, Json
+from pydantic import BaseModel, Json, ValidationError
 import uuid
 import os
 
@@ -27,10 +29,15 @@ router = APIRouter(
 config = load_settings()
 db = load_redis(config)
 
+class FileFormats(enum.StrEnum):
+    mp3="mp3"
+    m4a="m4a"
 
 class DownloadBody(BaseModel):
     url: str
     ignore_cache: bool = False
+    embed_thumbnail: bool = False
+    file_format: FileFormats = FileFormats.mp3
     """override cache check, downloading same song to new file"""
 
 
@@ -38,11 +45,17 @@ class DownloadResponse(BaseModel):
     song_ids: Set[str]
 
 
+def ensureDict(value: Any) -> Any:
+    if isinstance(value, str):
+        return json.loads(value)
+    if not isinstance(value, dict):
+        raise ValidationError(f"validation error. value {value} must be dict.")
+
 class DownloadCachedSong(BaseModel):
     file_path: str
     url: str
-    properties: Optional[Json[ItunesApiSongModel]] = None
-
+    properties: Optional[ItunesApiSongModel] = None
+    uuid: str
 
 @router.post("/")
 async def download(
@@ -59,7 +72,7 @@ async def download(
     song_id = str(uuid.uuid4())
     file_path = os.path.join(config.downloads_dir, song_id)
     file_path = youtube.run_download(
-        url=url, file_path_no_format=file_path, file_format="mp3", embed_thumbnail=False
+        url=url, file_path_no_format=file_path, file_format=body.file_format, embed_thumbnail=body.embed_thumbnail
     )
 
     if not file_path:
@@ -72,18 +85,18 @@ async def download(
     response = await db.sadd(config.redis_song_url_prefix, url, song_id)
     # the other via uuid which
     # stores more nested data about a song
-    uuid_cached_song = DownloadCachedSong(url=url, file_path=file_path).model_dump(
+    uuid_cached_song = DownloadCachedSong(url=url, file_path=file_path, uuid=song_id).model_dump(
         exclude_none=True
     )
-    response = await db.hset(config.redis_song_id_prefix, song_id, uuid_cached_song)
+    response = await db.index(config.redis_song_index_prefix, song_id, uuid_cached_song)
     logger.info(f"returning downloaded song {song_id}")
     return DownloadResponse(song_ids={song_id})
 
 
 @router.get("/{id}")
 async def get_download(id: str):
-    res: Optional[DownloadCachedSong] = await db.hgetall(
-        config.redis_song_id_prefix, id, DownloadCachedSong
+    res: Optional[DownloadCachedSong] = await db.index_get(
+        config.redis_song_index_prefix, id, DownloadCachedSong
     )
     if res and os.path.exists(res.file_path):
         return FileResponse(res.file_path)
@@ -96,13 +109,12 @@ async def get_download(id: str):
 
 @router.delete("/{id}")
 async def delete_download(id: str):
-    res: Optional[DownloadCachedSong] = await db.hgetall(
-        config.redis_song_id_prefix, id, DownloadCachedSong
+    res: Optional[DownloadCachedSong] = await db.index_get(
+        config.redis_song_index_prefix, id, DownloadCachedSong
     )
     file_path = os.path.join(config.downloads_dir, id)
     if os.path.exists(file_path):
         os.remove(file_path)
     if res:
         await db.srem(config.redis_song_url_prefix, res.url, id)
-    await db.delete(config.redis_song_id_prefix, id)
     await db.delete(config.redis_song_index_prefix, id)

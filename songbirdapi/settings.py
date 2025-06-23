@@ -18,7 +18,6 @@ class SongbirdServerConfig(BaseSettings):
     redis_song_index_name: str = "idx:songs"
     redis_song_index_prefix: str = "properties"
     redis_song_url_prefix: str = "song-url"
-    redis_song_id_prefix: str = "song-id"
 
     class Config:
         config_path = os.path.join(

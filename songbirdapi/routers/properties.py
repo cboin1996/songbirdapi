@@ -68,29 +68,16 @@ async def get_properties_itunes(
 class FilterParams(BaseModel):
     query: str
 
-
-class SongIndexItem(BaseModel):
-    id: str
-    properties: Json[ItunesApiSongModel] = Field(alias="json")
-
-
-class SongIndexResponse(BaseModel):
-    total: int
-    duration: float
-    docs: List[TaggedCachedSong]
-
-
 @router.get("/")
 async def get_properties(filter_query: Annotated[FilterParams, Query()]):
     res = await db.simple_search(config.redis_song_index_name, filter_query.query)
     return res
 
-
 @router.get("/{id}")
 async def get_properties_id(id: str) -> ItunesApiSongModel:
     """Get song properties for a given URL"""
-    res: Optional[DownloadCachedSong] = await db.hgetall(
-        config.redis_song_id_prefix, id, DownloadCachedSong
+    res: Optional[DownloadCachedSong] = await db.index_get(
+        config.redis_song_index_prefix, id, DownloadCachedSong
     )
     if not res:
         raise HTTPException(
@@ -105,18 +92,16 @@ async def get_properties_id(id: str) -> ItunesApiSongModel:
 
     return res.properties
 
-
 class TagBody(BaseModel):
     properties: ItunesApiSongModel
     song_id: str
-
 
 @router.put("/")
 async def put_properties(
     body: TagBody,
 ) -> TagResponse:
-    downloaded_song: Optional[DownloadCachedSong] = await db.hgetall(
-        config.redis_song_id_prefix, body.song_id, DownloadCachedSong
+    downloaded_song: Optional[DownloadCachedSong] = await db.index_get(
+        config.redis_song_index_prefix, body.song_id, DownloadCachedSong
     )  # pyright: ignore
     if not downloaded_song:
         msg = f"Cannot tag song w/ id {body.song_id}, it has not been downloaded yet!"
@@ -137,21 +122,10 @@ async def put_properties(
         )
 
     # save results in db
-    # TODO: warning when serializing
-    downloaded_song.properties = body.properties.model_dump_json()
-    await db.hset(
-        config.redis_song_id_prefix, body.song_id, downloaded_song.model_dump()
-    )
-    # index for searchability on properties
     # add item to index: https://redis.readthedocs.io/en/stable/examples/search_json_examples.html#Searching
-    cached_song = TaggedCachedSong(
-        url=downloaded_song.url,
-        properties=body.properties,
-        uuid=body.song_id,
-        file_path=downloaded_song.file_path,
-    )
-    res = await db.index(
-        config.redis_song_index_prefix, body.song_id, cached_song.model_dump()
+    downloaded_song.properties = body.properties
+    await db.index(
+        config.redis_song_index_prefix, body.song_id, downloaded_song.model_dump()
     )
     # update the download cache with the properties
     return TagResponse(song_id=body.song_id)

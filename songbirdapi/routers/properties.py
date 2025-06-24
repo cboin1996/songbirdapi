@@ -39,7 +39,7 @@ class TagResponse(BaseModel):
 
 
 class ItunesFilterParams(BaseModel):
-    limit: int = Field(10, gt=0, le=25)
+    limit: int = Field(10, gt=0, le=50)
     """limit of values to return"""
     query: str
     """value to search itunes for"""
@@ -124,6 +124,8 @@ async def put_properties(
     # save results in db
     # add item to index: https://redis.readthedocs.io/en/stable/examples/search_json_examples.html#Searching
     downloaded_song.properties = body.properties
+    # cast to int as index expects number field
+    downloaded_song.properties.collectionId = str(downloaded_song.properties.collectionId)
     await db.index(
         config.redis_song_index_prefix, body.song_id, downloaded_song.model_dump()
     )

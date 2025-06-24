@@ -50,6 +50,10 @@ async def initialize_db():
             as_name="collectionName",
         ),
         TextField(
+            f"$.{settings.redis_song_index_prefix}.collectionId",
+            as_name="collectionId",
+        ),
+        TextField(
             f"$.{settings.redis_song_index_prefix}.artworkUrl100",
             as_name="artworkUrl100",
         ),

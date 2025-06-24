@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from songbirdcore import youtube
 from songbirdcore import itunes
 from songbirdcore.models.itunes_api import ItunesApiSongModel
-from pydantic import BaseModel, Json, ValidationError
+from pydantic import BaseModel, Json, ValidationError, field_serializer
 import uuid
 import os
 
@@ -44,12 +44,6 @@ class DownloadBody(BaseModel):
 class DownloadResponse(BaseModel):
     song_ids: Set[str]
 
-
-def ensureDict(value: Any) -> Any:
-    if isinstance(value, str):
-        return json.loads(value)
-    if not isinstance(value, dict):
-        raise ValidationError(f"validation error. value {value} must be dict.")
 
 class DownloadCachedSong(BaseModel):
     file_path: str

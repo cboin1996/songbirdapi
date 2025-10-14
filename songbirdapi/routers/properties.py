@@ -68,10 +68,12 @@ async def get_properties_itunes(
 class FilterParams(BaseModel):
     query: str
 
+
 @router.get("/")
 async def get_properties(filter_query: Annotated[FilterParams, Query()]):
     res = await db.simple_search(config.redis_song_index_name, filter_query.query)
     return res
+
 
 @router.get("/{id}")
 async def get_properties_id(id: str) -> ItunesApiSongModel:
@@ -92,9 +94,11 @@ async def get_properties_id(id: str) -> ItunesApiSongModel:
 
     return res.properties
 
+
 class TagBody(BaseModel):
     properties: ItunesApiSongModel
     song_id: str
+
 
 @router.put("/")
 async def put_properties(
@@ -125,7 +129,9 @@ async def put_properties(
     # add item to index: https://redis.readthedocs.io/en/stable/examples/search_json_examples.html#Searching
     downloaded_song.properties = body.properties
     # cast to int as index expects number field
-    downloaded_song.properties.collectionId = str(downloaded_song.properties.collectionId)
+    downloaded_song.properties.collectionId = str(
+        downloaded_song.properties.collectionId
+    )
     await db.index(
         config.redis_song_index_prefix, body.song_id, downloaded_song.model_dump()
     )

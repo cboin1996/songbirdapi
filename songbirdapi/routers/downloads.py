@@ -29,9 +29,11 @@ router = APIRouter(
 config = load_settings()
 db = load_redis(config)
 
+
 class FileFormats(enum.StrEnum):
-    mp3="mp3"
-    m4a="m4a"
+    mp3 = "mp3"
+    m4a = "m4a"
+
 
 class DownloadBody(BaseModel):
     url: str
@@ -51,6 +53,7 @@ class DownloadCachedSong(BaseModel):
     properties: Optional[ItunesApiSongModel] = None
     uuid: str
 
+
 @router.post("/")
 async def download(
     body: DownloadBody,
@@ -66,7 +69,10 @@ async def download(
     song_id = str(uuid.uuid4())
     file_path = os.path.join(config.downloads_dir, song_id)
     file_path = youtube.run_download(
-        url=url, file_path_no_format=file_path, file_format=body.file_format, embed_thumbnail=body.embed_thumbnail
+        url=url,
+        file_path_no_format=file_path,
+        file_format=body.file_format,
+        embed_thumbnail=body.embed_thumbnail,
     )
 
     if not file_path:
@@ -79,9 +85,9 @@ async def download(
     response = await db.sadd(config.redis_song_url_prefix, url, song_id)
     # the other via uuid which
     # stores more nested data about a song
-    uuid_cached_song = DownloadCachedSong(url=url, file_path=file_path, uuid=song_id).model_dump(
-        exclude_none=True
-    )
+    uuid_cached_song = DownloadCachedSong(
+        url=url, file_path=file_path, uuid=song_id
+    ).model_dump(exclude_none=True)
     response = await db.index(config.redis_song_index_prefix, song_id, uuid_cached_song)
     logger.info(f"returning downloaded song {song_id}")
     return DownloadResponse(song_ids={song_id})

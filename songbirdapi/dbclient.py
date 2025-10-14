@@ -29,11 +29,9 @@ class RedisClient:
         return await self.client.json().set(
             f"{prefix}:{key}", Path.root_path(), value
         )  # pyright: ignore
-    
+
     async def index_get(self, prefix: str, key: str, model):
-        res = await self.client.json().get(
-            f"{prefix}:{key}"
-        ) # pyright: ignore
+        res = await self.client.json().get(f"{prefix}:{key}")  # pyright: ignore
         try:
             return model.model_validate(res)
         except ValidationError as e:

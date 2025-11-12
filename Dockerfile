@@ -23,7 +23,9 @@ FROM ubuntu:${UBUNTU_VERSION} AS build-image
 ENV PATH="/venv/bin:$PATH"
 
 WORKDIR /songbirdapi
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg python3-pip && \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg python3-pip curl unzip && \
+    # install deno
+    curl -fsSL https://deno.land/install.sh | sh && \
     # clear cache
     rm -rf /var/lib/apt/lists/*
 
@@ -33,8 +35,9 @@ COPY --from=builder /venv /venv
 COPY ./songbirdapi/ ./songbirdapi
 COPY pyproject.toml .
 
-# install deps locally
-RUN pip --no-cache-dir install .
+# install deps locally and validate external deps
+ENV PATH="/root/.deno/bin:$PATH"
+RUN pip --no-cache-dir install . && deno --help
 
 EXPOSE 8000
 ENTRYPOINT ["uvicorn", "songbirdapi.server:app", "--host", "0.0.0.0"]

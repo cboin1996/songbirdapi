@@ -35,11 +35,11 @@ COPY --from=builder /venv /venv
 COPY ./songbirdapi/ ./songbirdapi
 COPY pyproject.toml .
 
-# install deps locally
-RUN pip --no-cache-dir install .
+# install deps locally and validate external deps
+ENV PATH="/root/.deno/bin:$PATH"
+RUN pip --no-cache-dir install . && deno --help
 
 EXPOSE 8000
-ENV PATH="/root/.deno/bin:$PATH"
 ENTRYPOINT ["uvicorn", "songbirdapi.server:app", "--host", "0.0.0.0"]
 
 # RUN tests to confirm built code runs as expected

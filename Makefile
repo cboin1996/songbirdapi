@@ -1,4 +1,5 @@
 APP_NAME=songbirdapi
+REQUIREMENTS_FILE=requirements.txt
 .PHONY: env
 env:
 # check ENV env var has been set
@@ -31,6 +32,13 @@ setup:
 requirements:
 	pip install black isort click
 	pip install -r $(APP_NAME)/requirements.txt
+
+.PHONY: update-requirements
+update-requirements: env
+	pip freeze --exclude-editable | xargs pip uninstall -y
+	rm $(APP_NAME)/$(REQUIREMENTS_FILE) || true
+	pip install -r $(APP_NAME)/requirements.txt.blank
+	pip freeze --exclude-editable > $(APP_NAME)/$(REQUIREMENTS_FILE)
 
 local-run-songbirdapi:
 	uvicorn $(APP_NAME).server:app --host 0.0.0.0

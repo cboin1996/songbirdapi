@@ -17,6 +17,10 @@ lint:
 test:
 	uv run pytest tests/unit -v
 
+.PHONY: test-integration
+test-integration:
+	ENV=dev uv run pytest tests/integration -v
+
 .PHONY: local-run
 local-run:
 	uv run uvicorn $(APP_NAME).server:app --host 0.0.0.0

@@ -1,7 +1,10 @@
 import os
 import sys
+from pathlib import Path
 from pydantic_settings import BaseSettings
 from typing import List
+
+_PROJECT_ROOT = Path(__file__).parent.parent
 
 
 class SongbirdServerConfig(BaseSettings):
@@ -27,8 +30,5 @@ class SongbirdServerConfig(BaseSettings):
         )
 
     class Config:
-        config_path = os.path.join(
-            os.path.dirname(sys.path[0]), f"{os.getenv("ENV", "")}.env"
-        )
-        env_file = config_path
+        env_file = str(_PROJECT_ROOT / f"{os.getenv('ENV', '')}.env")
         env_file_encoding = "utf-8"

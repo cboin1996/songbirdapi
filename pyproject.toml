@@ -30,7 +30,9 @@ dev = [
     "isort",
     "click",
     "pytest",
+    "pytest-asyncio",
     "pytest-cov",
+    "httpx",
     "redis",
 ]
 

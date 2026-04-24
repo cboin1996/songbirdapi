@@ -7,7 +7,29 @@ name = "songbirdapi"
 authors = [
     {name = "Christian Boin"},
 ]
-version = "0.0.5"
+version = "0.0.6"
 description = "Music download api"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "pydantic",
+    "pydantic-settings",
+    "python-dotenv",
+    "uvicorn",
+    "redis",
+    "songbirdcore",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "isort",
+    "click",
+    "pytest",
+    "pytest-cov",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["songbirdapi*"]

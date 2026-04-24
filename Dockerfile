@@ -19,7 +19,7 @@ WORKDIR /songbirdapi
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg python3 curl unzip && \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip ffmpeg python3 && \
     ARCH=$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/') && \
     curl -fsSL "https://github.com/denoland/deno/releases/latest/download/deno-${ARCH}-unknown-linux-gnu.zip" -o /tmp/deno.zip && \
     unzip /tmp/deno.zip -d /usr/local/bin && \

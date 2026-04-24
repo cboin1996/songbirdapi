@@ -23,7 +23,7 @@ local-run:
 
 VALKEY_PERSISTENCE_DIR=./data/redis/
 SONGBIRD_API_PERSISTENCE_DIR=./data/songbirdapi/
-SONGBIRD_API_DOWNLOADS_DIR=$(SONGBIRD_API_PERSISTENCE_DIR)/downloads
+SONGBIRD_API_DOWNLOADS_DIR=$(SONGBIRD_API_PERSISTENCE_DIR)downloads
 
 .PHONY: volumes
 volumes:
@@ -66,7 +66,7 @@ docker-run-songbirdapi:
 .PHONY: docker-clean-songbirdapi
 docker-clean-songbirdapi:
 	docker rm $(APP_NAME) || true
-	docker network rm $(APP_NAME)
+	docker network rm $(APP_NAME) || true
 
 .PHONY: docker-stop-songbirdapi
 docker-stop-songbirdapi:

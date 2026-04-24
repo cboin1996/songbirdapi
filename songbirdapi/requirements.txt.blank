@@ -1,7 +1,0 @@
-fastapi
-pydantic
-pydantic-settings
-python-dotenv
-uvicorn
-redis
-songbirdcore

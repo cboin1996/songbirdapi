@@ -1,51 +1,35 @@
-# TODO: add dockerfile once built.
 ARG UBUNTU_VERSION="24.04"
 FROM ubuntu:${UBUNTU_VERSION} AS builder
 
 WORKDIR /songbirdapi
 
-# make sure we use the venv
-ENV PATH="/venv/bin:$PATH"
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential gcc git python3 python3-pip python3-venv && \
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential gcc git python3 && \
     rm -rf /var/lib/apt/lists/*
 
-# setup venv
-RUN python3 -m venv /venv
+COPY pyproject.toml uv.lock ./
+COPY ./songbirdapi/ ./songbirdapi
 
-COPY songbirdapi/requirements.txt .
-
-# install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN uv sync --frozen --no-dev
 
 FROM ubuntu:${UBUNTU_VERSION} AS build-image
 
-ENV PATH="/venv/bin:$PATH"
-
 WORKDIR /songbirdapi
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg python3-pip curl unzip && \
-    # install deno
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg python3 curl unzip && \
     curl -fsSL https://deno.land/install.sh | sh && \
-    # clear cache
     rm -rf /var/lib/apt/lists/*
 
-# copy venv
-COPY --from=builder /venv /venv
-# copy app contents
+COPY --from=builder /songbirdapi/.venv /songbirdapi/.venv
 COPY ./songbirdapi/ ./songbirdapi
-COPY pyproject.toml .
+COPY pyproject.toml uv.lock ./
 
-# install deps locally and validate external deps
-ENV PATH="/root/.deno/bin:$PATH"
-RUN pip --no-cache-dir install . && deno --help
+ENV PATH="/songbirdapi/.venv/bin:/root/.deno/bin:$PATH"
+
+RUN deno --help
 
 EXPOSE 8000
 ENTRYPOINT ["uvicorn", "songbirdapi.server:app", "--host", "0.0.0.0"]
-
-# RUN tests to confirm built code runs as expected
-# FROM build-image AS test
-#
-# RUN pip install -e .[dev]
-# COPY tests ./tests
-# WORKDIR /songbirdapi
-# RUN python3 -m pytest ./tests/unit/

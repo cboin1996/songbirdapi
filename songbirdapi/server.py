@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from songbirdapi.dependencies import load_settings
 
 from . import database
-from .routers import auth, downloads, properties, songs
+from .routers import admin, auth, downloads, properties, songs
 from .version import version
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     await database.dispose_engine()
 
 
-app = FastAPI(lifespan=lifespan, dependencies=[Depends(auth.handle_api_key)])
+app = FastAPI(lifespan=lifespan)
 
 # TODO: cors configuration
 origins = ["*"]
@@ -36,6 +36,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(properties.router)
 app.include_router(downloads.router)
 app.include_router(songs.router)

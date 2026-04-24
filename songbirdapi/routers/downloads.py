@@ -14,7 +14,7 @@ from songbirdcore.models.itunes_api import ItunesApiSongModel
 
 from songbirdapi import crud
 from songbirdapi.models import Song
-from ..dependencies import get_db, load_settings, process_song_url
+from ..dependencies import get_current_user, get_db, load_settings, process_song_url
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
 logger.handlers = uvicorn_logger.handlers
@@ -23,6 +23,7 @@ logger.setLevel(uvicorn_logger.level)
 router = APIRouter(
     prefix="/download",
     tags=["download"],
+    dependencies=[Depends(get_current_user)],
 )
 config = load_settings()
 

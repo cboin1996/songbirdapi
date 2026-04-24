@@ -3,7 +3,7 @@ from typing import Optional
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Song
+from .models import Role, Song, User
 
 
 async def get_song(db: AsyncSession, uuid: str) -> Optional[Song]:
@@ -58,3 +58,51 @@ async def search_songs(db: AsyncSession, query: str) -> list[Song]:
 async def list_songs(db: AsyncSession) -> list[Song]:
     result = await db.execute(select(Song))
     return list(result.scalars().all())
+
+
+# --- users ---
+
+async def get_user(db: AsyncSession, user_id: str) -> Optional[User]:
+    result = await db.execute(select(User).where(User.id == user_id))
+    return result.scalar_one_or_none()
+
+
+async def get_user_by_username(db: AsyncSession, username: str) -> Optional[User]:
+    result = await db.execute(select(User).where(User.username == username))
+    return result.scalar_one_or_none()
+
+
+async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
+    result = await db.execute(select(User).where(User.email == email))
+    return result.scalar_one_or_none()
+
+
+async def list_users(db: AsyncSession) -> list[User]:
+    result = await db.execute(select(User))
+    return list(result.scalars().all())
+
+
+async def create_user(db: AsyncSession, user: User) -> User:
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+async def update_user(db: AsyncSession, user_id: str, role: Optional[Role] = None, is_active: Optional[bool] = None) -> Optional[User]:
+    user = await get_user(db, user_id)
+    if not user:
+        return None
+    if role is not None:
+        user.role = role
+    if is_active is not None:
+        user.is_active = is_active
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+async def delete_user(db: AsyncSession, user_id: str) -> bool:
+    result = await db.execute(delete(User).where(User.id == user_id))
+    await db.commit()
+    return result.rowcount > 0

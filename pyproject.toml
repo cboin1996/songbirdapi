@@ -19,6 +19,8 @@ dependencies = [
     "uvicorn",
     "sqlalchemy[asyncio]",
     "asyncpg",
+    "PyJWT",
+    "bcrypt",
     "songbirdcore",
 ]
 

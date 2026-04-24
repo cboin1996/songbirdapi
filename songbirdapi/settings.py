@@ -12,6 +12,7 @@ class SongbirdServerConfig(BaseSettings):
     downloads_dir: str = os.path.join(root_path, "data", "downloads")
     dirs: List[str] = [downloads_dir]
     api_key: str
+    jwt_secret: str
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_db: str = "songbirdapi"

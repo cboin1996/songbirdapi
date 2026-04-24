@@ -11,7 +11,7 @@ from songbirdcore.models.itunes_api import ItunesApiAlbumKeys, ItunesApiSongMode
 from songbirdcore.models.modes import Modes
 
 from songbirdapi import crud
-from ..dependencies import get_db, load_settings
+from ..dependencies import get_current_user, get_db, load_settings
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
 logger.handlers = uvicorn_logger.handlers
@@ -23,6 +23,7 @@ ROUTE_NAME = "properties"
 router = APIRouter(
     prefix=f"/{ROUTE_NAME}",
     tags=[ROUTE_NAME],
+    dependencies=[Depends(get_current_user)],
 )
 
 

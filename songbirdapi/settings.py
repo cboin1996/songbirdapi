@@ -16,6 +16,10 @@ class SongbirdServerConfig(BaseSettings):
     dirs: List[str] = [downloads_dir]
     api_key: str
     jwt_secret: str
+    cors_origins: str = "http://localhost:3000"
+    admin_username: str = ""
+    admin_email: str = ""
+    admin_password: str = ""
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_db: str = "songbirdapi"

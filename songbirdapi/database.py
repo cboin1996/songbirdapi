@@ -1,7 +1,9 @@
+import uuid as _uuid
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from .models import Base
+from .models import Base, Role, User
 
 _engine = None
 _session_factory = None
@@ -25,6 +27,26 @@ async def create_schema():
                 )
             )
         """))
+
+
+async def seed_admin(username: str, email: str, password: str):
+    from .crud import get_user_by_username
+    from .security import hash_password
+    if not username or not email or not password:
+        return
+    async with _session_factory() as session:
+        existing = await get_user_by_username(session, username)
+        if existing:
+            return
+        user = User(
+            id=str(_uuid.uuid4()),
+            username=username,
+            email=email,
+            hashed_password=hash_password(password),
+            role=Role.admin,
+        )
+        session.add(user)
+        await session.commit()
 
 
 async def dispose_engine():

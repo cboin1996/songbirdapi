@@ -15,20 +15,21 @@ uvicorn_logger = logging.getLogger("uvicorn.error")
 logger.handlers = uvicorn_logger.handlers
 logger.setLevel(uvicorn_logger.level)
 
+_settings = load_settings()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = load_settings()
-    database.init_engine(settings.postgres_dsn)
+    database.init_engine(_settings.postgres_dsn)
     await database.create_schema()
+    await database.seed_admin(_settings.admin_username, _settings.admin_email, _settings.admin_password)
     yield
     await database.dispose_engine()
 
 
 app = FastAPI(lifespan=lifespan)
 
-# TODO: cors configuration
-origins = ["*"]
+origins = [o.strip() for o in _settings.cors_origins.split(",")]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,

@@ -1,33 +1,30 @@
 import enum
-from http import HTTPStatus
-import json
+import logging
+import os
+import uuid
+from typing import Optional, Set
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.logger import logger
-from typing import Any, List, Optional, Set, Union
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 from songbirdcore import youtube
-from songbirdcore import itunes
 from songbirdcore.models.itunes_api import ItunesApiSongModel
-from pydantic import BaseModel, Json, ValidationError, field_serializer
-import uuid
-import os
 
-from songbirdapi.dbclient import RedisClient
-from ..settings import SongbirdServerConfig
-from ..dependencies import load_redis, load_settings, process_song_url
-import logging
+from songbirdapi import crud
+from songbirdapi.models import Song
+from ..dependencies import get_db, load_settings, process_song_url
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
 logger.handlers = uvicorn_logger.handlers
 logger.setLevel(uvicorn_logger.level)
 
-# add router for all songbird related api calls
 router = APIRouter(
     prefix="/download",
     tags=["download"],
 )
 config = load_settings()
-db = load_redis(config)
 
 
 class FileFormats(enum.StrEnum):
@@ -57,14 +54,13 @@ class DownloadCachedSong(BaseModel):
 @router.post("/")
 async def download(
     body: DownloadBody,
+    db: AsyncSession = Depends(get_db),
 ) -> DownloadResponse:
-    # split off any playlists from youtube
-    # TODO: add logic to songbirdcore?
     url = process_song_url(body.url)
-    res = await db.smembers(config.redis_song_url_prefix, url)
-    if res and not body.ignore_cache:
-        logger.info(f"returning cached values {res}")
-        return DownloadResponse(song_ids=res)
+    existing = await crud.get_songs_by_url(db, url)
+    if existing and not body.ignore_cache:
+        logger.info(f"returning cached values {[s.uuid for s in existing]}")
+        return DownloadResponse(song_ids={s.uuid for s in existing})
 
     song_id = str(uuid.uuid4())
     file_path = os.path.join(config.downloads_dir, song_id)
@@ -81,40 +77,26 @@ async def download(
             detail=f"Could not perform download of song at url {url}",
         )
 
-    # we store two ways to lookup, one mapping URL->song_id,
-    response = await db.sadd(config.redis_song_url_prefix, url, song_id)
-    # the other via uuid which
-    # stores more nested data about a song
-    uuid_cached_song = DownloadCachedSong(
-        url=url, file_path=file_path, uuid=song_id
-    ).model_dump(exclude_none=True)
-    response = await db.index(config.redis_song_index_prefix, song_id, uuid_cached_song)
+    song = Song(uuid=song_id, url=url, file_path=file_path)
+    await crud.insert_song(db, song)
     logger.info(f"returning downloaded song {song_id}")
     return DownloadResponse(song_ids={song_id})
 
 
 @router.get("/{id}")
-async def get_download(id: str):
-    res: Optional[DownloadCachedSong] = await db.index_get(
-        config.redis_song_index_prefix, id, DownloadCachedSong
+async def get_download(id: str, db: AsyncSession = Depends(get_db)):
+    song = await crud.get_song(db, id)
+    if song and os.path.exists(song.file_path):
+        return FileResponse(song.file_path)
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Could not find song with id {id}",
     )
-    if res and os.path.exists(res.file_path):
-        return FileResponse(res.file_path)
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Could not find song with id {id}",
-        )
 
 
 @router.delete("/{id}")
-async def delete_download(id: str):
-    res: Optional[DownloadCachedSong] = await db.index_get(
-        config.redis_song_index_prefix, id, DownloadCachedSong
-    )
-    file_path = os.path.join(config.downloads_dir, id)
-    if os.path.exists(file_path):
-        os.remove(file_path)
-    if res:
-        await db.srem(config.redis_song_url_prefix, res.url, id)
-    await db.delete(config.redis_song_index_prefix, id)
+async def delete_download(id: str, db: AsyncSession = Depends(get_db)):
+    song = await crud.get_song(db, id)
+    if song and os.path.exists(song.file_path):
+        os.remove(song.file_path)
+    await crud.delete_song(db, id)

@@ -1,6 +1,5 @@
-from functools import lru_cache
+from .database import get_db as get_db
 from .settings import SongbirdServerConfig
-from .dbclient import RedisClient
 
 
 def process_song_url(url: str):
@@ -8,9 +7,4 @@ def process_song_url(url: str):
 
 
 def load_settings() -> SongbirdServerConfig:
-    """Get dalle settings class"""
     return SongbirdServerConfig()  # pyright: ignore
-
-
-def load_redis(settings: SongbirdServerConfig) -> RedisClient:
-    return RedisClient(host=settings.redis_host, port=settings.redis_port)

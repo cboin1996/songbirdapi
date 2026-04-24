@@ -1,30 +1,38 @@
-from typing import Annotated, List, Optional, Union
-from fastapi import APIRouter, Query, status
-from fastapi import HTTPException
-from fastapi.logger import logger
-from pydantic import BaseModel, Field, Json
-import os
 import logging
+import os
+from typing import Annotated, List, Optional, Union
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.logger import logger
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 from songbirdcore import itunes
 from songbirdcore.models.itunes_api import ItunesApiAlbumKeys, ItunesApiSongModel
 from songbirdcore.models.modes import Modes
-from starlette.status import HTTP_404_NOT_FOUND
 
-from ..dependencies import load_redis, load_settings, process_song_url
-from .downloads import DownloadCachedSong
+from songbirdapi import crud
+from ..dependencies import get_db, load_settings
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
 logger.handlers = uvicorn_logger.handlers
 logger.setLevel(uvicorn_logger.level)
 
 config = load_settings()
-db = load_redis(config)
 
 ROUTE_NAME = "properties"
 router = APIRouter(
     prefix=f"/{ROUTE_NAME}",
     tags=[ROUTE_NAME],
 )
+
+
+class SongResponse(BaseModel):
+    uuid: str
+    url: str
+    file_path: str
+    properties: Optional[ItunesApiSongModel]
+
+    model_config = {"from_attributes": True}
 
 
 class TaggedCachedSong(BaseModel):
@@ -69,30 +77,29 @@ class FilterParams(BaseModel):
     query: str
 
 
-@router.get("/")
-async def get_properties(filter_query: Annotated[FilterParams, Query()]):
-    res = await db.simple_search(config.redis_song_index_name, filter_query.query)
-    return res
+@router.get("/", response_model=List[SongResponse])
+async def get_properties(
+    filter_query: Annotated[FilterParams, Query()],
+    db: AsyncSession = Depends(get_db),
+):
+    return await crud.search_songs(db, filter_query.query)
 
 
 @router.get("/{id}")
-async def get_properties_id(id: str) -> ItunesApiSongModel:
+async def get_properties_id(id: str, db: AsyncSession = Depends(get_db)) -> ItunesApiSongModel:
     """Get song properties for a given URL"""
-    res: Optional[DownloadCachedSong] = await db.index_get(
-        config.redis_song_index_prefix, id, DownloadCachedSong
-    )
-    if not res:
+    song = await crud.get_song(db, id)
+    if not song:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No song downloaded for url {id}",
         )
-    if not res.properties:
+    if not song.properties:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Song exists, but no properties found. Use PUT /{ROUTE_NAME} to set them.",
         )
-
-    return res.properties
+    return ItunesApiSongModel.model_validate(song.properties)
 
 
 class TagBody(BaseModel):
@@ -103,37 +110,28 @@ class TagBody(BaseModel):
 @router.put("/")
 async def put_properties(
     body: TagBody,
+    db: AsyncSession = Depends(get_db),
 ) -> TagResponse:
-    downloaded_song: Optional[DownloadCachedSong] = await db.index_get(
-        config.redis_song_index_prefix, body.song_id, DownloadCachedSong
-    )  # pyright: ignore
-    if not downloaded_song:
+    song = await crud.get_song(db, body.song_id)
+    if not song:
         msg = f"Cannot tag song w/ id {body.song_id}, it has not been downloaded yet!"
         logger.error(msg)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=msg)
-    if not os.path.exists(downloaded_song.file_path):
-        msg = f"Cannot tag file {downloaded_song.file_path}, file does not exist"
+    if not os.path.exists(song.file_path):
+        msg = f"Cannot tag file {song.file_path}, file does not exist"
         logger.error(msg)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=msg
         )
     # TODO: are the tags working properly?
-    result = itunes.mp3ID3Tagger(downloaded_song.file_path, body.properties)
+    result = itunes.mp3ID3Tagger(song.file_path, body.properties)
     if not result:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Could not tag file with properties from body {body.properties.model_dump_json()}",
         )
 
-    # save results in db
-    # add item to index: https://redis.readthedocs.io/en/stable/examples/search_json_examples.html#Searching
-    downloaded_song.properties = body.properties
-    # cast to int as index expects number field
-    downloaded_song.properties.collectionId = str(
-        downloaded_song.properties.collectionId
-    )
-    await db.index(
-        config.redis_song_index_prefix, body.song_id, downloaded_song.model_dump()
-    )
-    # update the download cache with the properties
+    props = body.properties.model_dump()
+    props["collectionId"] = str(props["collectionId"])
+    await crud.update_song_properties(db, body.song_id, props)
     return TagResponse(song_id=body.song_id)

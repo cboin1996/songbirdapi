@@ -17,7 +17,8 @@ dependencies = [
     "pydantic-settings",
     "python-dotenv",
     "uvicorn",
-    "redis",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
     "songbirdcore",
 ]
 
@@ -28,6 +29,7 @@ dev = [
     "click",
     "pytest",
     "pytest-cov",
+    "redis",
 ]
 
 [tool.setuptools.packages.find]

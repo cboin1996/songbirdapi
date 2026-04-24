@@ -1,7 +1,6 @@
 import os
 import sys
 from pydantic_settings import BaseSettings
-import sys
 from typing import List
 
 
@@ -13,11 +12,18 @@ class SongbirdServerConfig(BaseSettings):
     downloads_dir: str = os.path.join(root_path, "data", "downloads")
     dirs: List[str] = [downloads_dir]
     api_key: str
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_song_index_name: str = "idx:songs"
-    redis_song_index_prefix: str = "properties"
-    redis_song_url_prefix: str = "song-url"
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    postgres_db: str = "songbirdapi"
+    postgres_user: str = "songbirdapi"
+    postgres_password: str
+
+    @property
+    def postgres_dsn(self) -> str:
+        return (
+            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
 
     class Config:
         config_path = os.path.join(

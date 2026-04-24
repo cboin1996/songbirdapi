@@ -21,13 +21,13 @@ test:
 local-run:
 	uv run uvicorn $(APP_NAME).server:app --host 0.0.0.0
 
-VALKEY_PERSISTENCE_DIR=./data/redis/
+POSTGRES_PERSISTENCE_DIR=./data/postgres/
 SONGBIRD_API_PERSISTENCE_DIR=./data/songbirdapi/
 SONGBIRD_API_DOWNLOADS_DIR=$(SONGBIRD_API_PERSISTENCE_DIR)downloads
 
 .PHONY: volumes
 volumes:
-	mkdir -p $(VALKEY_PERSISTENCE_DIR) || true
+	mkdir -p $(POSTGRES_PERSISTENCE_DIR) || true
 	mkdir -p $(SONGBIRD_API_PERSISTENCE_DIR) || true
 	mkdir -p $(SONGBIRD_API_DOWNLOADS_DIR) || true
 
@@ -35,29 +35,35 @@ volumes:
 docker-build:
 	docker build -t $(APP_NAME):latest .
 
-DOCKER_VALKEY_NAME=$(APP_NAME)-redis-ext
+DOCKER_POSTGRES_NAME=$(APP_NAME)-postgres
 DOCKER_NETWORK_NAME=$(APP_NAME)
 
 .PHONY: docker-network
 docker-network:
 	docker network create $(DOCKER_NETWORK_NAME) || true
 
-.PHONY: docker-run-redis
-docker-run-redis: volumes docker-network
-	docker run --network $(DOCKER_NETWORK_NAME) --name $(DOCKER_VALKEY_NAME) -p 6379:6379 -v $(VALKEY_PERSISTENCE_DIR):/data -d redis redis-server --save 10 1
+.PHONY: docker-run-postgres
+docker-run-postgres: volumes docker-network
+	docker run --network $(DOCKER_NETWORK_NAME) --name $(DOCKER_POSTGRES_NAME) \
+		-p 5432:5432 \
+		-v $(POSTGRES_PERSISTENCE_DIR):/var/lib/postgresql/data \
+		-e POSTGRES_DB=songbirdapi \
+		-e POSTGRES_USER=songbirdapi \
+		-e POSTGRES_PASSWORD=songbirdapi \
+		-d postgres:16-alpine
 
-.PHONY: docker-connect-redis
-docker-connect-redis:
-	docker run -it --network $(DOCKER_NETWORK_NAME) --rm redis redis-cli -h $(DOCKER_VALKEY_NAME)
+.PHONY: docker-connect-postgres
+docker-connect-postgres:
+	docker exec -it $(DOCKER_POSTGRES_NAME) psql -U songbirdapi -d songbirdapi
 
-.PHONY: docker-stop-redis
-docker-stop-redis:
-	docker kill $(DOCKER_VALKEY_NAME) || true
-	docker rm $(DOCKER_VALKEY_NAME) || true
+.PHONY: docker-stop-postgres
+docker-stop-postgres:
+	docker kill $(DOCKER_POSTGRES_NAME) || true
+	docker rm $(DOCKER_POSTGRES_NAME) || true
 
-.PHONY: docker-clean-redis
-docker-clean-redis:
-	docker rm $(DOCKER_VALKEY_NAME) || true
+.PHONY: docker-clean-postgres
+docker-clean-postgres:
+	docker rm $(DOCKER_POSTGRES_NAME) || true
 
 .PHONY: docker-run-songbirdapi
 docker-run-songbirdapi:
@@ -74,13 +80,13 @@ docker-stop-songbirdapi:
 	docker rm $(APP_NAME) || true
 
 .PHONY: docker-run-all
-docker-run-all: docker-run-redis docker-run-songbirdapi
+docker-run-all: docker-run-postgres docker-run-songbirdapi
 
 .PHONY: docker-stop-all
-docker-stop-all: docker-stop-redis docker-stop-songbirdapi
+docker-stop-all: docker-stop-postgres docker-stop-songbirdapi
 
 .PHONY: docker-clean-all
-docker-clean-all: docker-stop-all docker-clean-redis docker-clean-songbirdapi
+docker-clean-all: docker-stop-all docker-clean-postgres docker-clean-songbirdapi
 
 .PHONY: docker-dev
 docker-dev: docker-clean-all docker-build docker-run-all

@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -50,3 +50,31 @@ class UserSong(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
     last_position: Mapped[float] = mapped_column(Float, nullable=False, server_default="0")
     last_played_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SongPlay(Base):
+    __tablename__ = "song_plays"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    song_id: Mapped[str] = mapped_column(Text, ForeignKey("songs.uuid", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    played_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
+
+    __table_args__ = (
+        Index("idx_song_plays_song_id", "song_id"),
+        Index("idx_song_plays_played_at", "played_at"),
+    )
+
+
+class SongDownload(Base):
+    __tablename__ = "song_downloads"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    song_id: Mapped[str] = mapped_column(Text, ForeignKey("songs.uuid", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    downloaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
+
+    __table_args__ = (
+        Index("idx_song_downloads_song_id", "song_id"),
+        Index("idx_song_downloads_downloaded_at", "downloaded_at"),
+    )

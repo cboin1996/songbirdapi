@@ -1,10 +1,11 @@
-from datetime import datetime, timezone
+import uuid as _uuid
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Role, Song, User, UserSong
+from .models import Role, Song, SongDownload, SongPlay, User, UserSong
 
 
 async def get_song(db: AsyncSession, uuid: str) -> Optional[Song]:
@@ -111,6 +112,27 @@ async def delete_user(db: AsyncSession, user_id: str) -> bool:
 
 # --- library ---
 
+async def list_library_with_songs(db: AsyncSession, user_id: str) -> list[dict]:
+    result = await db.execute(
+        select(Song, UserSong)
+        .join(UserSong, Song.uuid == UserSong.song_id)
+        .where(UserSong.user_id == user_id)
+        .order_by(UserSong.added_at.desc())
+    )
+    rows = result.all()
+    return [
+        {
+            "uuid": song.uuid,
+            "url": song.url,
+            "properties": song.properties,
+            "added_at": entry.added_at.isoformat(),
+            "last_position": entry.last_position,
+            "last_played_at": entry.last_played_at.isoformat() if entry.last_played_at else None,
+        }
+        for song, entry in rows
+    ]
+
+
 async def get_library(db: AsyncSession, user_id: str) -> list[UserSong]:
     result = await db.execute(select(UserSong).where(UserSong.user_id == user_id))
     return list(result.scalars().all())
@@ -140,6 +162,116 @@ async def remove_from_library(db: AsyncSession, user_id: str, song_id: str) -> b
     )
     await db.commit()
     return result.rowcount > 0
+
+
+# --- plays / downloads ---
+
+def _window_cutoff(window: str) -> datetime | None:
+    if window == "day":
+        return datetime.now(timezone.utc) - timedelta(days=1)
+    if window == "week":
+        return datetime.now(timezone.utc) - timedelta(weeks=1)
+    return None  # "all"
+
+
+async def record_play(db: AsyncSession, song_id: str, user_id: str) -> bool:
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+    existing = await db.execute(
+        select(SongPlay).where(
+            SongPlay.song_id == song_id,
+            SongPlay.user_id == user_id,
+            SongPlay.played_at >= cutoff,
+        )
+    )
+    if existing.scalar_one_or_none():
+        return False
+    db.add(SongPlay(id=str(_uuid.uuid4()), song_id=song_id, user_id=user_id))
+    await db.commit()
+    return True
+
+
+async def record_download(db: AsyncSession, song_id: str, user_id: str) -> None:
+    db.add(SongDownload(id=str(_uuid.uuid4()), song_id=song_id, user_id=user_id))
+    await db.commit()
+
+
+async def get_popular_songs(db: AsyncSession, window: str, limit: int = 10) -> list[dict]:
+    cutoff = _window_cutoff(window)
+    q = (
+        select(Song, func.count(SongPlay.id).label("count"))
+        .join(SongPlay, Song.uuid == SongPlay.song_id)
+        .group_by(Song.uuid)
+        .order_by(func.count(SongPlay.id).desc())
+        .limit(limit)
+    )
+    if cutoff:
+        q = q.where(SongPlay.played_at >= cutoff)
+    result = await db.execute(q)
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
+
+
+async def get_popular_downloads(db: AsyncSession, window: str, limit: int = 10) -> list[dict]:
+    cutoff = _window_cutoff(window)
+    q = (
+        select(Song, func.count(SongDownload.id).label("count"))
+        .join(SongDownload, Song.uuid == SongDownload.song_id)
+        .group_by(Song.uuid)
+        .order_by(func.count(SongDownload.id).desc())
+        .limit(limit)
+    )
+    if cutoff:
+        q = q.where(SongDownload.downloaded_at >= cutoff)
+    result = await db.execute(q)
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
+
+
+async def get_recently_added(db: AsyncSession, limit: int = 10) -> list[Song]:
+    result = await db.execute(
+        select(Song).where(Song.properties.isnot(None)).order_by(Song.created_at.desc()).limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_most_libraryed(db: AsyncSession, window: str, limit: int = 10) -> list[dict]:
+    cutoff = _window_cutoff(window)
+    q = (
+        select(Song, func.count(UserSong.song_id).label("count"))
+        .join(UserSong, Song.uuid == UserSong.song_id)
+        .group_by(Song.uuid)
+        .order_by(func.count(UserSong.song_id).desc())
+        .limit(limit)
+    )
+    if cutoff:
+        q = q.where(UserSong.added_at >= cutoff)
+    result = await db.execute(q)
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
+
+
+async def get_user_most_played(db: AsyncSession, user_id: str, limit: int = 10) -> list[dict]:
+    q = (
+        select(Song, func.count(SongPlay.id).label("count"))
+        .join(SongPlay, Song.uuid == SongPlay.song_id)
+        .where(SongPlay.user_id == user_id)
+        .group_by(Song.uuid)
+        .order_by(func.count(SongPlay.id).desc())
+        .limit(limit)
+    )
+    result = await db.execute(q)
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
+
+
+async def get_user_recently_played(db: AsyncSession, user_id: str, limit: int = 10) -> list[dict]:
+    result = await db.execute(
+        select(Song, UserSong.last_played_at)
+        .join(UserSong, Song.uuid == UserSong.song_id)
+        .where(UserSong.user_id == user_id, UserSong.last_played_at.isnot(None))
+        .order_by(UserSong.last_played_at.desc())
+        .limit(limit)
+    )
+    return [
+        {"uuid": s.uuid, "properties": s.properties, "last_played_at": lp.isoformat()}
+        for s, lp in result.all()
+    ]
 
 
 async def update_position(db: AsyncSession, user_id: str, song_id: str, position: float) -> Optional[UserSong]:

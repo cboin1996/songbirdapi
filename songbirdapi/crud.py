@@ -247,7 +247,8 @@ async def get_most_libraryed(db: AsyncSession, window: str, limit: int = 10) -> 
     return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
 
 
-async def get_user_most_played(db: AsyncSession, user_id: str, limit: int = 10) -> list[dict]:
+async def get_user_most_played(db: AsyncSession, user_id: str, window: str = "all", limit: int = 10) -> list[dict]:
+    cutoff = _window_cutoff(window)
     q = (
         select(Song, func.count(SongPlay.id).label("count"))
         .join(SongPlay, Song.uuid == SongPlay.song_id)
@@ -256,6 +257,8 @@ async def get_user_most_played(db: AsyncSession, user_id: str, limit: int = 10) 
         .order_by(func.count(SongPlay.id).desc())
         .limit(limit)
     )
+    if cutoff:
+        q = q.where(SongPlay.played_at >= cutoff)
     result = await db.execute(q)
     return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
 

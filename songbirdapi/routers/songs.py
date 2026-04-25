@@ -81,7 +81,7 @@ async def explore(
     most_downloaded = await crud.get_popular_downloads(db, window)
     most_libraryed = await crud.get_most_libraryed(db, window)
     recently_added = await crud.get_recently_added(db)
-    your_most_played = await crud.get_user_most_played(db, current_user.id)
+    your_most_played = await crud.get_user_most_played(db, current_user.id, window)
     your_recently_played = await crud.get_user_recently_played(db, current_user.id)
     return ExploreResponse(
         most_played=most_played,

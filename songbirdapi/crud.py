@@ -1,9 +1,10 @@
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Role, Song, User
+from .models import Role, Song, User, UserSong
 
 
 async def get_song(db: AsyncSession, uuid: str) -> Optional[Song]:
@@ -106,3 +107,47 @@ async def delete_user(db: AsyncSession, user_id: str) -> bool:
     result = await db.execute(delete(User).where(User.id == user_id))
     await db.commit()
     return result.rowcount > 0
+
+
+# --- library ---
+
+async def get_library(db: AsyncSession, user_id: str) -> list[UserSong]:
+    result = await db.execute(select(UserSong).where(UserSong.user_id == user_id))
+    return list(result.scalars().all())
+
+
+async def get_library_entry(db: AsyncSession, user_id: str, song_id: str) -> Optional[UserSong]:
+    result = await db.execute(
+        select(UserSong).where(UserSong.user_id == user_id, UserSong.song_id == song_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def add_to_library(db: AsyncSession, user_id: str, song_id: str) -> UserSong:
+    existing = await get_library_entry(db, user_id, song_id)
+    if existing:
+        return existing
+    entry = UserSong(user_id=user_id, song_id=song_id)
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+    return entry
+
+
+async def remove_from_library(db: AsyncSession, user_id: str, song_id: str) -> bool:
+    result = await db.execute(
+        delete(UserSong).where(UserSong.user_id == user_id, UserSong.song_id == song_id)
+    )
+    await db.commit()
+    return result.rowcount > 0
+
+
+async def update_position(db: AsyncSession, user_id: str, song_id: str, position: float) -> Optional[UserSong]:
+    entry = await get_library_entry(db, user_id, song_id)
+    if not entry:
+        return None
+    entry.last_position = position
+    entry.last_played_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(entry)
+    return entry

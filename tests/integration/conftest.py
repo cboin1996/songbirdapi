@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from songbirdapi import crud
 from songbirdapi.database import get_db
-from songbirdapi.models import Base, Role, User
+from songbirdapi.models import Base, Role, Song, User
 from songbirdapi.security import hash_password
 from songbirdapi.server import app
 from songbirdapi.settings import SongbirdServerConfig
@@ -70,3 +70,17 @@ async def regular_user(test_client):
     yield user
     async with _TestingSession() as db:
         await crud.delete_user(db, user.id)
+
+
+@pytest_asyncio.fixture(scope="session")
+async def sample_song(test_client):
+    async with _TestingSession() as db:
+        song = Song(
+            uuid=str(uuid.uuid4()),
+            url="https://example.com/test-song",
+            file_path="/tmp/test-song.mp3",
+        )
+        await crud.insert_song(db, song)
+    yield song
+    async with _TestingSession() as db:
+        await crud.delete_song(db, song.uuid)

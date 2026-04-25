@@ -23,7 +23,7 @@ test-integration:
 
 .PHONY: local-run
 local-run:
-	uv run uvicorn $(APP_NAME).server:app --host 0.0.0.0
+	uv run uvicorn $(APP_NAME).server:app --host 0.0.0.0 --reload
 
 POSTGRES_PERSISTENCE_DIR=./data/postgres/
 SONGBIRD_API_PERSISTENCE_DIR=./data/songbirdapi/

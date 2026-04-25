@@ -37,12 +37,20 @@ class RecentlyPlayedSong(BaseModel):
     last_played_at: str
 
 
+class RecentlySavedSong(BaseModel):
+    uuid: str
+    properties: dict | None
+    added_at: str
+
+
 class ExploreResponse(BaseModel):
     most_played: list[SongWithCount]
     most_downloaded: list[SongWithCount]
     most_libraryed: list[SongWithCount]
     recently_added: list[SongResponse]
     your_most_played: list[SongWithCount]
+    your_most_downloaded: list[SongWithCount]
+    your_recently_saved: list[RecentlySavedSong]
     your_recently_played: list[RecentlyPlayedSong]
 
 
@@ -82,6 +90,8 @@ async def explore(
     most_libraryed = await crud.get_most_libraryed(db, window)
     recently_added = await crud.get_recently_added(db)
     your_most_played = await crud.get_user_most_played(db, current_user.id, window)
+    your_most_downloaded = await crud.get_user_most_downloaded(db, current_user.id, window)
+    your_recently_saved = await crud.get_user_recently_saved(db, current_user.id, window)
     your_recently_played = await crud.get_user_recently_played(db, current_user.id)
     return ExploreResponse(
         most_played=most_played,
@@ -89,5 +99,7 @@ async def explore(
         most_libraryed=most_libraryed,
         recently_added=recently_added,
         your_most_played=your_most_played,
+        your_most_downloaded=your_most_downloaded,
+        your_recently_saved=your_recently_saved,
         your_recently_played=your_recently_played,
     )

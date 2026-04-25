@@ -288,6 +288,37 @@ async def update_position(db: AsyncSession, user_id: str, song_id: str, position
     return entry
 
 
+async def get_user_recently_saved(db: AsyncSession, user_id: str, window: str = "all", limit: int = 10) -> list[dict]:
+    cutoff = _window_cutoff(window)
+    q = (
+        select(Song, UserSong.added_at)
+        .join(UserSong, Song.uuid == UserSong.song_id)
+        .where(UserSong.user_id == user_id)
+        .order_by(UserSong.added_at.desc())
+        .limit(limit)
+    )
+    if cutoff:
+        q = q.where(UserSong.added_at >= cutoff)
+    result = await db.execute(q)
+    return [{"uuid": s.uuid, "properties": s.properties, "added_at": at.isoformat()} for s, at in result.all()]
+
+
+async def get_user_most_downloaded(db: AsyncSession, user_id: str, window: str = "all", limit: int = 10) -> list[dict]:
+    cutoff = _window_cutoff(window)
+    q = (
+        select(Song, func.count(SongDownload.id).label("count"))
+        .join(SongDownload, Song.uuid == SongDownload.song_id)
+        .where(SongDownload.user_id == user_id)
+        .group_by(Song.uuid)
+        .order_by(func.count(SongDownload.id).desc())
+        .limit(limit)
+    )
+    if cutoff:
+        q = q.where(SongDownload.downloaded_at >= cutoff)
+    result = await db.execute(q)
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
+
+
 # --- player state ---
 
 async def get_player_state(db: AsyncSession, user_id: str) -> Optional[UserPlayerState]:

@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Role, Song, SongDownload, SongPlay, User, UserSong
+from .models import RepeatMode, Role, Song, SongDownload, SongPlay, User, UserPlayerState, UserSong
 
 
 async def get_song(db: AsyncSession, uuid: str) -> Optional[Song]:
@@ -283,3 +283,32 @@ async def update_position(db: AsyncSession, user_id: str, song_id: str, position
     await db.commit()
     await db.refresh(entry)
     return entry
+
+
+# --- player state ---
+
+async def get_player_state(db: AsyncSession, user_id: str) -> Optional[UserPlayerState]:
+    result = await db.execute(select(UserPlayerState).where(UserPlayerState.user_id == user_id))
+    return result.scalar_one_or_none()
+
+
+async def upsert_player_state(
+    db: AsyncSession,
+    user_id: str,
+    shuffle: bool,
+    repeat: RepeatMode,
+    queue: list[str],
+    queue_index: int,
+) -> UserPlayerState:
+    state = await get_player_state(db, user_id)
+    if state is None:
+        state = UserPlayerState(user_id=user_id)
+        db.add(state)
+    state.shuffle = shuffle
+    state.repeat = repeat
+    state.queue = queue
+    state.queue_index = queue_index
+    state.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(state)
+    return state

@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Text
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -13,6 +13,12 @@ class Base(DeclarativeBase):
 class Role(str, enum.Enum):
     admin = "admin"
     user = "user"
+
+
+class RepeatMode(str, enum.Enum):
+    off = "off"
+    one = "one"
+    all = "all"
 
 
 class User(Base):
@@ -64,6 +70,17 @@ class SongPlay(Base):
         Index("idx_song_plays_song_id", "song_id"),
         Index("idx_song_plays_played_at", "played_at"),
     )
+
+
+class UserPlayerState(Base):
+    __tablename__ = "user_player_state"
+
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    shuffle: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    repeat: Mapped[RepeatMode] = mapped_column(SAEnum(RepeatMode), nullable=False, server_default=RepeatMode.off.value)
+    queue: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    queue_index: Mapped[int] = mapped_column(Integer, nullable=False, server_default="-1")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
 
 
 class SongDownload(Base):

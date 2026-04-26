@@ -12,7 +12,7 @@ from songbirdapi.dependencies import load_settings
 
 from . import database
 from .models import ErrorLog
-from .routers import admin, auth, downloads, edit, library, player, properties, share, songs
+from .routers import admin, auth, downloads, edit, imports, library, player, properties, share, songs
 from .routers import version as version_router
 from .version import version
 
@@ -53,6 +53,7 @@ app.include_router(downloads.router, prefix=_V1)
 app.include_router(songs.router, prefix=_V1)
 app.include_router(share.router, prefix=_V1)
 app.include_router(edit.router, prefix=_V1)
+app.include_router(imports.router, prefix=_V1)
 app.include_router(version_router.router, prefix=_V1)
 
 

@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import EditJob, EditJobStatus, RepeatMode, Role, Song, SongDownload, SongPlay, SongShareToken, User, UserPlayerState, UserSong
+from .models import EditJob, EditJobStatus, RepeatMode, Role, Song, SongDownload, SongEditDraft, SongPlay, SongShareToken, User, UserPlayerState, UserSong
 
 
 async def get_song(db: AsyncSession, uuid: str) -> Optional[Song]:
@@ -364,6 +364,35 @@ async def update_edit_job(
     if error is not None:
         job.error = error
     await db.commit()
+
+
+# --- edit drafts ---
+
+async def get_edit_draft(db: AsyncSession, user_id: str, song_id: str) -> Optional[SongEditDraft]:
+    result = await db.execute(
+        select(SongEditDraft).where(SongEditDraft.user_id == user_id, SongEditDraft.song_id == song_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def upsert_edit_draft(db: AsyncSession, user_id: str, song_id: str, params: dict) -> SongEditDraft:
+    draft = await get_edit_draft(db, user_id, song_id)
+    if draft is None:
+        draft = SongEditDraft(user_id=user_id, song_id=song_id, params=params)
+        db.add(draft)
+    else:
+        draft.params = params
+        draft.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return draft
+
+
+async def delete_edit_draft(db: AsyncSession, user_id: str, song_id: str) -> bool:
+    result = await db.execute(
+        delete(SongEditDraft).where(SongEditDraft.user_id == user_id, SongEditDraft.song_id == song_id)
+    )
+    await db.commit()
+    return result.rowcount > 0
 
 
 # --- share tokens ---

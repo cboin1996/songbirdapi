@@ -129,3 +129,12 @@ class EditJob(Base):
     params: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
+
+
+class SongEditDraft(Base):
+    __tablename__ = "song_edit_drafts"
+
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    song_id: Mapped[str] = mapped_column(Text, ForeignKey("songs.uuid", ondelete="CASCADE"), primary_key=True)
+    params: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")

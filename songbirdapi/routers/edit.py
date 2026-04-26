@@ -101,6 +101,40 @@ async def create_edit_job(
     return EditJobResponse(job_id=job.id, status=job.status.value)
 
 
+@router.get("/songs/{id}/draft", response_model=EditParams)
+async def get_draft(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    draft = await crud.get_edit_draft(db, current_user.id, id)
+    if not draft:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no draft")
+    return draft.params
+
+
+@router.put("/songs/{id}/draft", status_code=status.HTTP_204_NO_CONTENT)
+async def save_draft(
+    id: str,
+    body: EditParams,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    song = await crud.get_song(db, id)
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="song not found")
+    await crud.upsert_edit_draft(db, current_user.id, id, body.model_dump())
+
+
+@router.delete("/songs/{id}/draft", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_draft(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await crud.delete_edit_draft(db, current_user.id, id)
+
+
 @router.get("/jobs/{job_id}", response_model=EditJobResponse)
 async def get_edit_job_status(
     job_id: str,

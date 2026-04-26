@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import RepeatMode, Role, Song, SongDownload, SongPlay, User, UserPlayerState, UserSong
+from .models import RepeatMode, Role, Song, SongDownload, SongPlay, SongShareToken, User, UserPlayerState, UserSong
 
 
 async def get_song(db: AsyncSession, uuid: str) -> Optional[Song]:
@@ -317,6 +317,23 @@ async def get_user_most_downloaded(db: AsyncSession, user_id: str, window: str =
         q = q.where(SongDownload.downloaded_at >= cutoff)
     result = await db.execute(q)
     return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
+
+
+# --- share tokens ---
+
+async def create_share_token(db: AsyncSession, song_id: str, user_id: str, ttl_days: int = 7) -> SongShareToken:
+    token = str(_uuid.uuid4())
+    expires_at = datetime.now(timezone.utc) + timedelta(days=ttl_days)
+    entry = SongShareToken(token=token, song_id=song_id, created_by=user_id, expires_at=expires_at)
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+    return entry
+
+
+async def get_share_token(db: AsyncSession, token: str) -> Optional[SongShareToken]:
+    result = await db.execute(select(SongShareToken).where(SongShareToken.token == token))
+    return result.scalar_one_or_none()
 
 
 # --- player state ---

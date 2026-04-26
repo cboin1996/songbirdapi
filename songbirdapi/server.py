@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from songbirdapi.dependencies import load_settings
 
 from . import database
-from .routers import admin, auth, downloads, library, player, properties, songs
+from .routers import admin, auth, downloads, library, player, properties, share, songs
 from .version import version
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
@@ -45,6 +45,7 @@ app.include_router(player.router)
 app.include_router(properties.router)
 app.include_router(downloads.router)
 app.include_router(songs.router)
+app.include_router(share.router)
 
 
 @app.get("/")

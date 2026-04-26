@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
@@ -95,3 +95,13 @@ class SongDownload(Base):
         Index("idx_song_downloads_song_id", "song_id"),
         Index("idx_song_downloads_downloaded_at", "downloaded_at"),
     )
+
+
+class SongShareToken(Base):
+    __tablename__ = "song_share_tokens"
+
+    token: Mapped[str] = mapped_column(Text, primary_key=True)
+    song_id: Mapped[str] = mapped_column(Text, ForeignKey("songs.uuid", ondelete="CASCADE"), nullable=False)
+    created_by: Mapped[str] = mapped_column(Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")

@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import EditJob, EditJobStatus, RepeatMode, Role, Song, SongDownload, SongEditDraft, SongPlay, SongShareToken, User, UserPlayerState, UserSong
+from .models import EditJob, EditJobStatus, ImportJob, RepeatMode, Role, Song, SongDownload, SongEditDraft, SongPlay, SongShareToken, User, UserPlayerState, UserSong
 
 
 async def get_song(db: AsyncSession, uuid: str) -> Optional[Song]:
@@ -138,6 +138,8 @@ async def list_library_with_songs(db: AsyncSession, user_id: str) -> list[dict]:
             "url": song.url,
             "properties": song.properties,
             "artwork_cached": song.artwork_thumb is not None,
+            "parent_song_id": song.parent_song_id,
+            "root_song_id": song.root_song_id,
             "added_at": entry.added_at.isoformat(),
             "last_position": entry.last_position,
             "last_played_at": entry.last_played_at.isoformat() if entry.last_played_at else None,
@@ -175,6 +177,25 @@ async def remove_from_library(db: AsyncSession, user_id: str, song_id: str) -> b
     )
     await db.commit()
     return result.rowcount > 0
+
+
+async def library_ref_count(db: AsyncSession, song_id: str) -> int:
+    result = await db.execute(select(func.count()).where(UserSong.song_id == song_id))
+    return result.scalar_one()
+
+
+async def delete_song(db: AsyncSession, song_id: str) -> None:
+    import os
+    song = await get_song(db, song_id)
+    if not song:
+        return
+    await db.execute(delete(Song).where(Song.uuid == song_id))
+    await db.commit()
+    if song.file_path and os.path.exists(song.file_path):
+        try:
+            os.remove(song.file_path)
+        except OSError:
+            pass
 
 
 # --- plays / downloads ---
@@ -361,6 +382,40 @@ async def update_edit_job(
     job.updated_at = datetime.now(timezone.utc)
     if result_song_id is not None:
         job.result_song_id = result_song_id
+    if error is not None:
+        job.error = error
+    await db.commit()
+
+
+# --- import jobs ---
+
+async def create_import_job(db: AsyncSession, user_id: str, filename: str) -> ImportJob:
+    job = ImportJob(id=str(_uuid.uuid4()), user_id=user_id, filename=filename)
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    return job
+
+
+async def get_import_job(db: AsyncSession, job_id: str) -> Optional[ImportJob]:
+    result = await db.execute(select(ImportJob).where(ImportJob.id == job_id))
+    return result.scalar_one_or_none()
+
+
+async def update_import_job(
+    db: AsyncSession,
+    job_id: str,
+    status: EditJobStatus,
+    song_id: str | None = None,
+    error: str | None = None,
+) -> None:
+    job = await get_import_job(db, job_id)
+    if not job:
+        return
+    job.status = status
+    job.updated_at = datetime.now(timezone.utc)
+    if song_id is not None:
+        job.song_id = song_id
     if error is not None:
         job.error = error
     await db.commit()

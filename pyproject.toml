@@ -39,3 +39,6 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["songbirdapi*"]
+
+[tool.uv.sources]
+songbirdcore = { path = "../songbirdcore", editable = true }

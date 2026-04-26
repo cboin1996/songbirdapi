@@ -1589,7 +1589,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "python-dotenv" },
     { name = "redis", marker = "extra == 'dev'" },
-    { name = "songbirdcore" },
+    { name = "songbirdcore", editable = "../songbirdcore" },
     { name = "sqlalchemy", extras = ["asyncio"] },
     { name = "uvicorn" },
 ]
@@ -1598,7 +1598,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "songbirdcore"
 version = "0.1.8"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "../songbirdcore" }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "eyed3" },
@@ -1616,10 +1616,37 @@ dependencies = [
     { name = "requests-htmlc" },
     { name = "yt-dlp", extra = ["default"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/dc/31/af6bc4099c8e0cf578d0980d84ffdb807014ebd937091a166bb92f3b21c5/songbirdcore-0.1.8.tar.gz", hash = "sha256:fa9c1b11678046b33e731a23af5426bc2345c9e379c0a8e1c349efcbe601b749", size = 433887, upload-time = "2026-04-24T06:16:37.902Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9b/0d/79d5a5fc841a2e20074876d60548dccb0a6b53613fbfd8c70925dd0ea661/songbirdcore-0.1.8-py3-none-any.whl", hash = "sha256:930ce944702ce87972a71994db01918ecfd71cf2fdb512bd7ea952653d35e26b", size = 315435, upload-time = "2026-04-24T06:16:36.177Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "beautifulsoup4" },
+    { name = "black", marker = "extra == 'dev'" },
+    { name = "build", marker = "extra == 'package'" },
+    { name = "click", marker = "extra == 'dev'" },
+    { name = "eyed3" },
+    { name = "google-api-core" },
+    { name = "google-api-python-client" },
+    { name = "google-auth" },
+    { name = "google-auth-httplib2" },
+    { name = "google-auth-oauthlib" },
+    { name = "googleapis-common-protos" },
+    { name = "isort", marker = "extra == 'dev'" },
+    { name = "mike", marker = "extra == 'dev'" },
+    { name = "mkdocs", marker = "extra == 'dev'" },
+    { name = "mkdocs-material", marker = "extra == 'dev'" },
+    { name = "mkdocstrings-python", marker = "extra == 'dev'" },
+    { name = "mutagen" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+    { name = "requests-htmlc" },
+    { name = "twine", marker = "extra == 'package'" },
+    { name = "yt-dlp", extras = ["default"] },
 ]
+provides-extras = ["dev", "package"]
 
 [[package]]
 name = "soupsieve"

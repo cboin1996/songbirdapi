@@ -1,14 +1,19 @@
 import logging
+import traceback
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI, Request
 from fastapi.logger import logger
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from songbirdapi.dependencies import load_settings
 
 from . import database
+from .models import ErrorLog
 from .routers import admin, auth, downloads, edit, library, player, properties, share, songs
+from .routers import version as version_router
 from .version import version
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
@@ -38,15 +43,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)
-app.include_router(admin.router)
-app.include_router(library.router)
-app.include_router(player.router)
-app.include_router(properties.router)
-app.include_router(downloads.router)
-app.include_router(songs.router)
-app.include_router(share.router)
-app.include_router(edit.router)
+_V1 = "/v1"
+app.include_router(auth.router, prefix=_V1)
+app.include_router(admin.router, prefix=_V1)
+app.include_router(library.router, prefix=_V1)
+app.include_router(player.router, prefix=_V1)
+app.include_router(properties.router, prefix=_V1)
+app.include_router(downloads.router, prefix=_V1)
+app.include_router(songs.router, prefix=_V1)
+app.include_router(share.router, prefix=_V1)
+app.include_router(edit.router, prefix=_V1)
+app.include_router(version_router.router, prefix=_V1)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    async with database._session_factory() as session:
+        row = ErrorLog(
+            id=str(uuid.uuid4()),
+            level="error",
+            path=request.url.path,
+            method=request.method,
+            status_code=500,
+            message=str(exc),
+            detail=tb,
+        )
+        session.add(row)
+        try:
+            await session.commit()
+        except Exception:
+            pass
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @app.get("/")

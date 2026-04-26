@@ -17,12 +17,22 @@ _config = load_settings()
 router = APIRouter(prefix="/edit", tags=["edit"])
 
 
+class CutRange(BaseModel):
+    start: float = Field(ge=0)
+    end: float = Field(ge=0)
+    fade_in: float = Field(default=0.0, ge=0)
+    fade_out: float = Field(default=0.0, ge=0)
+
+
 class EditParams(BaseModel):
     trim_start: float = Field(default=0.0, ge=0)
     trim_end: float | None = Field(default=None, ge=0)
     volume: float = Field(default=1.0, ge=0.0, le=2.0)
     fade_in: float = Field(default=0.0, ge=0)
     fade_out: float = Field(default=0.0, ge=0)
+    speed: float = Field(default=1.0, ge=0.25, le=4.0)
+    normalize: bool = Field(default=False)
+    cuts: list[CutRange] = Field(default_factory=list)
 
 
 class EditRequest(BaseModel):
@@ -58,10 +68,14 @@ async def _run_edit_job(job_id: str, source_song_id: str, user_id: str, params: 
                     os.remove(tmp_path)
                 await crud.update_edit_job(db, job_id, EditJobStatus.failed, error=str(exc))
         else:
+            # Always edit from the root original to avoid compounding generation loss.
+            root_id = source.root_song_id or source.uuid
+            root = await crud.get_song(db, root_id) if root_id != source.uuid else source
+
             new_uuid = str(_uuid.uuid4())
             dest_path = os.path.join(_config.downloads_dir, f"{new_uuid}.mp3")
             try:
-                await apply_edits(source.file_path, dest_path, params)
+                await apply_edits(root.file_path, dest_path, params)
                 new_song = Song(
                     uuid=new_uuid,
                     url=source.url,
@@ -70,9 +84,20 @@ async def _run_edit_job(job_id: str, source_song_id: str, user_id: str, params: 
                     artwork_thumb=source.artwork_thumb,
                     artwork_full=source.artwork_full,
                     parent_song_id=source_song_id,
+                    root_song_id=root_id,
                 )
                 db.add(new_song)
                 await db.commit()
+
+                # Remove source from library — it becomes the hidden "last save"
+                await crud.remove_from_library(db, user_id, source_song_id)
+
+                # Enforce 2-edit cap: delete the old grandparent (pre-last-save) if it
+                # is not the root and has no other library references.
+                if source.parent_song_id and source.parent_song_id != root_id:
+                    if await crud.library_ref_count(db, source.parent_song_id) == 0:
+                        await crud.delete_song(db, source.parent_song_id)
+
                 await crud.add_to_library(db, user_id, new_uuid)
                 await crud.update_edit_job(db, job_id, EditJobStatus.done, result_song_id=new_uuid)
             except Exception as exc:

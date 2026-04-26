@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import RepeatMode, Role, Song, SongDownload, SongPlay, SongShareToken, User, UserPlayerState, UserSong
+from .models import EditJob, EditJobStatus, RepeatMode, Role, Song, SongDownload, SongPlay, SongShareToken, User, UserPlayerState, UserSong
 
 
 async def get_song(db: AsyncSession, uuid: str) -> Optional[Song]:
@@ -22,6 +22,18 @@ async def insert_song(db: AsyncSession, song: Song) -> Song:
     db.add(song)
     await db.commit()
     await db.refresh(song)
+    return song
+
+
+async def update_song_artwork(db: AsyncSession, uuid: str, thumb_path: str | None, full_path: str | None) -> Optional[Song]:
+    song = await get_song(db, uuid)
+    if not song:
+        return None
+    if thumb_path is not None:
+        song.artwork_thumb = thumb_path
+    if full_path is not None:
+        song.artwork_full = full_path
+    await db.commit()
     return song
 
 
@@ -125,6 +137,7 @@ async def list_library_with_songs(db: AsyncSession, user_id: str) -> list[dict]:
             "uuid": song.uuid,
             "url": song.url,
             "properties": song.properties,
+            "artwork_cached": song.artwork_thumb is not None,
             "added_at": entry.added_at.isoformat(),
             "last_position": entry.last_position,
             "last_played_at": entry.last_played_at.isoformat() if entry.last_played_at else None,
@@ -317,6 +330,40 @@ async def get_user_most_downloaded(db: AsyncSession, user_id: str, window: str =
         q = q.where(SongDownload.downloaded_at >= cutoff)
     result = await db.execute(q)
     return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
+
+
+# --- edit jobs ---
+
+async def create_edit_job(db: AsyncSession, source_song_id: str, user_id: str, params: dict) -> EditJob:
+    job = EditJob(id=str(_uuid.uuid4()), source_song_id=source_song_id, user_id=user_id, params=params)
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    return job
+
+
+async def get_edit_job(db: AsyncSession, job_id: str) -> Optional[EditJob]:
+    result = await db.execute(select(EditJob).where(EditJob.id == job_id))
+    return result.scalar_one_or_none()
+
+
+async def update_edit_job(
+    db: AsyncSession,
+    job_id: str,
+    status: EditJobStatus,
+    result_song_id: str | None = None,
+    error: str | None = None,
+) -> None:
+    job = await get_edit_job(db, job_id)
+    if not job:
+        return
+    job.status = status
+    job.updated_at = datetime.now(timezone.utc)
+    if result_song_id is not None:
+        job.result_song_id = result_song_id
+    if error is not None:
+        job.error = error
+    await db.commit()
 
 
 # --- share tokens ---

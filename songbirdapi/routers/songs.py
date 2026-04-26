@@ -1,12 +1,16 @@
+import os
 from typing import Literal
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_user, get_db
+from ..dependencies import get_current_user, get_db, load_settings
 from ..models import User
 from .. import crud
+
+_config = load_settings()
 
 router = APIRouter(prefix="/songs", tags=["songs"])
 
@@ -15,8 +19,21 @@ class SongResponse(BaseModel):
     uuid: str
     url: str
     properties: dict | None
+    artwork_cached: bool = False
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode='before')
+    @classmethod
+    def _compute_artwork_cached(cls, data):
+        if hasattr(data, 'artwork_thumb'):
+            return {
+                'uuid': data.uuid,
+                'url': data.url,
+                'properties': data.properties,
+                'artwork_cached': data.artwork_thumb is not None,
+            }
+        return data
 
 
 class LibrarySongResponse(SongResponse):
@@ -77,6 +94,22 @@ async def record_play(
     current_user: User = Depends(get_current_user),
 ):
     await crud.record_play(db, id, current_user.id)
+
+
+@router.get("/{id}/artwork")
+async def get_artwork(
+    id: str,
+    size: Literal["thumb", "full"] = "full",
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    song = await crud.get_song(db, id)
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+    path = song.artwork_thumb if size == "thumb" else song.artwork_full
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artwork not cached")
+    return FileResponse(path, media_type="image/jpeg")
 
 
 @router.get("/explore", response_model=ExploreResponse)

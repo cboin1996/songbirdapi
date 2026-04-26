@@ -2,7 +2,7 @@ import logging
 import os
 from typing import Annotated, List, Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.logger import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,9 +108,19 @@ class TagBody(BaseModel):
     song_id: str
 
 
+async def _cache_artwork(song_id: str, itunes_url: str) -> None:
+    from ..artwork import fetch_and_store_artwork
+    from ..database import _session_factory
+    thumb, full = await fetch_and_store_artwork(song_id, itunes_url, config.artwork_dir)
+    if thumb or full:
+        async with _session_factory() as db:
+            await crud.update_song_artwork(db, song_id, thumb, full)
+
+
 @router.put("/")
 async def put_properties(
     body: TagBody,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> TagResponse:
     song = await crud.get_song(db, body.song_id)
@@ -135,4 +145,8 @@ async def put_properties(
     props = body.properties.model_dump()
     props["collectionId"] = str(props["collectionId"])
     await crud.update_song_properties(db, body.song_id, props)
+
+    if body.properties.artworkUrl100:
+        background_tasks.add_task(_cache_artwork, body.song_id, body.properties.artworkUrl100)
+
     return TagResponse(song_id=body.song_id)

@@ -38,14 +38,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)
-app.include_router(admin.router)
-app.include_router(library.router)
-app.include_router(player.router)
-app.include_router(properties.router)
-app.include_router(downloads.router)
-app.include_router(songs.router)
-app.include_router(share.router)
+app.include_router(auth.router, prefix="/v1")
+app.include_router(admin.router, prefix="/v1")
+app.include_router(library.router, prefix="/v1")
+app.include_router(player.router, prefix="/v1")
+app.include_router(properties.router, prefix="/v1")
+app.include_router(downloads.router, prefix="/v1")
+app.include_router(songs.router, prefix="/v1")
+app.include_router(share.router, prefix="/v1")
 
 
 @app.get("/")

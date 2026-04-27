@@ -72,9 +72,9 @@ def _build_volume_and_fades_filter(
                 f"if(lt(t,{bs:.6f}),1,if(lt(t,{be:.6f}),(t-{bs:.6f})/{dur:.6f},1))"
             )
         else:
-            # 1 before bs, ramp 1→0 from bs to be, 1 after be (silence handled by reaching 0)
+            # 1 before bs, ramp 1→0 from bs to be, 0 after be
             fade_factors.append(
-                f"if(lt(t,{bs:.6f}),1,if(lt(t,{be:.6f}),({be:.6f}-t)/{dur:.6f},1))"
+                f"if(lt(t,{bs:.6f}),1,if(lt(t,{be:.6f}),({be:.6f}-t)/{dur:.6f},0))"
             )
 
     if not fade_factors and abs(volume - 1.0) < 1e-6:

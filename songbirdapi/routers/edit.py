@@ -5,7 +5,7 @@ import uuid as _uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from ..database import _session_factory
+from .. import database
 from ..dependencies import get_current_user, get_db, load_settings
 from ..models import EditJobStatus, Role, Song, User
 from .. import crud
@@ -48,7 +48,7 @@ class EditJobResponse(BaseModel):
 
 
 async def _run_edit_job(job_id: str, source_song_id: str, user_id: str, params: dict, overwrite: bool) -> None:
-    async with _session_factory() as db:
+    async with database._session_factory() as db:
         await crud.update_edit_job(db, job_id, EditJobStatus.processing)
 
         source = await crud.get_song(db, source_song_id)

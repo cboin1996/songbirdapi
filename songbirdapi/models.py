@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, Text, cast, Date
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, Text, cast, Date, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -51,6 +51,7 @@ class Song(Base):
     artwork_full: Mapped[str | None] = mapped_column(Text, nullable=True)
     parent_song_id: Mapped[str | None] = mapped_column(Text, ForeignKey("songs.uuid", ondelete="SET NULL"), nullable=True)
     root_song_id: Mapped[str | None] = mapped_column(Text, ForeignKey("songs.uuid", ondelete="SET NULL"), nullable=True)
+    owner_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
 
     __table_args__ = (
@@ -141,6 +142,7 @@ class ImportJob(Base):
     status: Mapped[EditJobStatus] = mapped_column(SAEnum(EditJobStatus), nullable=False, server_default=EditJobStatus.pending.value)
     song_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duplicate_of: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
 
@@ -152,6 +154,22 @@ class SongEditDraft(Base):
     song_id: Mapped[str] = mapped_column(Text, ForeignKey("songs.uuid", ondelete="CASCADE"), primary_key=True)
     params: Mapped[dict] = mapped_column(JSONB, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
+
+
+class Playlist(Base):
+    __tablename__ = "playlists"
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class PlaylistSong(Base):
+    __tablename__ = "playlist_songs"
+    playlist_id: Mapped[str] = mapped_column(Text, ForeignKey("playlists.id", ondelete="CASCADE"), primary_key=True)
+    song_uuid: Mapped[str] = mapped_column(Text, ForeignKey("songs.uuid", ondelete="CASCADE"), primary_key=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class ErrorLog(Base):

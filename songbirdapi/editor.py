@@ -85,7 +85,7 @@ async def _apply_simple(
 
     if filters:
         cmd += ["-af", ",".join(filters)]
-    cmd += ["-c:a", "libmp3lame", "-q:a", "0", dest_path]
+    cmd += ["-vn", "-c:a", "libmp3lame", "-q:a", "0", dest_path]
     await _run_ffmpeg(cmd)
 
 
@@ -164,7 +164,7 @@ async def _apply_with_cuts(
         fc = ";".join(parts) + ";" + concat
         map_arg = "[cat]"
 
-    cmd = ["ffmpeg", "-y", "-i", source_path, "-filter_complex", fc, "-map", map_arg, "-c:a", "libmp3lame", "-q:a", "0", dest_path]
+    cmd = ["ffmpeg", "-y", "-i", source_path, "-filter_complex", fc, "-map", map_arg, "-vn", "-c:a", "libmp3lame", "-q:a", "0", dest_path]
     await _run_ffmpeg(cmd)
 
 

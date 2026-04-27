@@ -23,6 +23,7 @@ dependencies = [
     "bcrypt",
     "songbirdcore",
     "python-multipart",
+    "Pillow",
 ]
 
 [project.optional-dependencies]

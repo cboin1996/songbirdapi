@@ -11,7 +11,9 @@ from songbirdcore.models.itunes_api import ItunesApiAlbumKeys, ItunesApiSongMode
 from songbirdcore.models.modes import Modes
 
 from songbirdapi import crud
+from ..crud import _is_publish_eligible
 from ..dependencies import get_current_user, get_db, load_settings
+from ..models import User
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
 logger.handlers = uvicorn_logger.handlers
@@ -82,8 +84,9 @@ class FilterParams(BaseModel):
 async def get_properties(
     filter_query: Annotated[FilterParams, Query()],
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    return await crud.search_songs(db, filter_query.query)
+    return await crud.search_songs(db, filter_query.query, user_id=current_user.id)
 
 
 @router.get("/{id}")
@@ -122,6 +125,7 @@ async def put_properties(
     body: TagBody,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> TagResponse:
     song = await crud.get_song(db, body.song_id)
     if not song:
@@ -148,5 +152,9 @@ async def put_properties(
 
     if body.properties.artworkUrl100:
         background_tasks.add_task(_cache_artwork, body.song_id, body.properties.artworkUrl100)
+
+    song = await crud.get_song(db, body.song_id)
+    if song and song.owner_id == current_user.id and _is_publish_eligible(props):
+        await crud.publish_song(db, body.song_id)
 
     return TagResponse(song_id=body.song_id)

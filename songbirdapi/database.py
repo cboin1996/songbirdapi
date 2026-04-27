@@ -18,6 +18,15 @@ def init_engine(dsn: str):
 async def create_schema():
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text(
+            "ALTER TABLE songs ADD COLUMN IF NOT EXISTS root_song_id TEXT REFERENCES songs(uuid) ON DELETE SET NULL"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS duplicate_of TEXT"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE songs ADD COLUMN IF NOT EXISTS owner_id TEXT REFERENCES users(id) ON DELETE SET NULL"
+        ))
         await conn.execute(text("""
             CREATE INDEX IF NOT EXISTS idx_songs_fts ON songs USING GIN (
                 to_tsvector('english',
@@ -27,6 +36,22 @@ async def create_schema():
                 )
             )
         """))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS error_logs (
+                id TEXT PRIMARY KEY,
+                timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
+                level TEXT NOT NULL,
+                path TEXT,
+                method TEXT,
+                status_code INTEGER,
+                message TEXT NOT NULL,
+                detail TEXT,
+                user_id TEXT REFERENCES users(id) ON DELETE SET NULL
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_error_logs_timestamp ON error_logs (timestamp)"
+        ))
 
 
 async def seed_admin(username: str, email: str, password: str):

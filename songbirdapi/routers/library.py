@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import crud
+from ..crud import _is_publish_eligible
 from ..database import get_db
 from ..dependencies import get_current_user
-from ..models import User
+from ..models import Song, User
 
 router = APIRouter(prefix="/library", tags=["library"])
 
@@ -36,6 +38,22 @@ async def get_library(
         )
         for e in entries
     ]
+
+
+@router.post("/publish")
+async def publish_eligible_songs(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    result = await db.execute(select(Song.uuid, Song.properties).where(Song.owner_id == current_user.id))
+    rows = result.all()
+    eligible_ids = [uuid for uuid, props in rows if _is_publish_eligible(props)]
+    if eligible_ids:
+        await db.execute(
+            update(Song).where(Song.uuid.in_(eligible_ids)).values(owner_id=None)
+        )
+        await db.commit()
+    return {"published": len(eligible_ids)}
 
 
 @router.post("/{song_id}", status_code=status.HTTP_201_CREATED, response_model=LibraryEntry)

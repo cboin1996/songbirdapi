@@ -50,7 +50,7 @@ async def publish_eligible_songs(
     eligible_ids = [uuid for uuid, props in rows if _is_publish_eligible(props)]
     if eligible_ids:
         await db.execute(
-            update(Song).where(Song.uuid.in_(eligible_ids)).values(owner_id=None)
+            update(Song).where(Song.uuid.in_(eligible_ids)).values(owner_id=None, source="community")
         )
         await db.commit()
     return {"published": len(eligible_ids)}

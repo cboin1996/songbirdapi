@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, Text, cast, Date, func
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, String, Text, cast, Date, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -53,6 +53,7 @@ class Song(Base):
     parent_song_id: Mapped[str | None] = mapped_column(Text, ForeignKey("songs.uuid", ondelete="SET NULL"), nullable=True)
     root_song_id: Mapped[str | None] = mapped_column(Text, ForeignKey("songs.uuid", ondelete="SET NULL"), nullable=True)
     owner_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
 
     __table_args__ = (

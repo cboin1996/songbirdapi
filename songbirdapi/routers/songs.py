@@ -23,6 +23,7 @@ class SongResponse(BaseModel):
     owner_id: str | None = None
     root_song_id: str | None = None
     parent_song_id: str | None = None
+    source: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -38,6 +39,7 @@ class SongResponse(BaseModel):
                 'owner_id': data.owner_id,
                 'root_song_id': getattr(data, 'root_song_id', None),
                 'parent_song_id': getattr(data, 'parent_song_id', None),
+                'source': getattr(data, 'source', None),
             }
         return data
 
@@ -52,6 +54,7 @@ class SongWithCount(BaseModel):
     uuid: str
     properties: dict | None
     count: int
+    source: str | None = None
 
 
 class RecentlyPlayedSong(BaseModel):
@@ -75,6 +78,8 @@ class ExploreResponse(BaseModel):
     your_most_downloaded: list[SongWithCount]
     your_recently_saved: list[RecentlySavedSong]
     your_recently_played: list[RecentlyPlayedSong]
+    community_recent: list[SongResponse]
+    community_popular: list[SongWithCount]
 
 
 @router.get("/", response_model=list[SongResponse])
@@ -107,6 +112,8 @@ async def explore(
     your_most_downloaded = await crud.get_user_most_downloaded(db, current_user.id, window)
     your_recently_saved = await crud.get_user_recently_saved(db, current_user.id, window)
     your_recently_played = await crud.get_user_recently_played(db, current_user.id)
+    community_recent = await crud.get_community_recent(db)
+    community_popular = await crud.get_community_popular(db, window)
     return ExploreResponse(
         most_played=most_played,
         most_downloaded=most_downloaded,
@@ -116,6 +123,8 @@ async def explore(
         your_most_downloaded=your_most_downloaded,
         your_recently_saved=your_recently_saved,
         your_recently_played=your_recently_played,
+        community_recent=community_recent,
+        community_popular=community_popular,
     )
 
 

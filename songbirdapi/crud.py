@@ -64,6 +64,7 @@ async def publish_song(db: AsyncSession, song_id: str) -> None:
     song = await get_song(db, song_id)
     if song:
         song.owner_id = None
+        song.source = "community"
         await db.commit()
 
 
@@ -265,7 +266,7 @@ async def get_popular_songs(db: AsyncSession, window: str, limit: int = 10, user
     if cutoff:
         q = q.where(SongPlay.played_at >= cutoff)
     result = await db.execute(q)
-    return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
 
 
 async def get_popular_downloads(db: AsyncSession, window: str, limit: int = 10, user_id: str | None = None) -> list[dict]:
@@ -281,7 +282,7 @@ async def get_popular_downloads(db: AsyncSession, window: str, limit: int = 10, 
     if cutoff:
         q = q.where(SongDownload.downloaded_at >= cutoff)
     result = await db.execute(q)
-    return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
 
 
 async def get_recently_added(db: AsyncSession, limit: int = 10, user_id: str | None = None) -> list[Song]:
@@ -304,7 +305,7 @@ async def get_most_libraryed(db: AsyncSession, window: str, limit: int = 10, use
     if cutoff:
         q = q.where(UserSong.added_at >= cutoff)
     result = await db.execute(q)
-    return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
 
 
 async def get_user_most_played(db: AsyncSession, user_id: str, window: str = "all", limit: int = 10) -> list[dict]:
@@ -320,7 +321,7 @@ async def get_user_most_played(db: AsyncSession, user_id: str, window: str = "al
     if cutoff:
         q = q.where(SongPlay.played_at >= cutoff)
     result = await db.execute(q)
-    return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
 
 
 async def get_user_recently_played(db: AsyncSession, user_id: str, limit: int = 10) -> list[dict]:
@@ -346,6 +347,29 @@ async def update_position(db: AsyncSession, user_id: str, song_id: str, position
     await db.commit()
     await db.refresh(entry)
     return entry
+
+
+async def get_community_recent(db: AsyncSession, limit: int = 10) -> list[Song]:
+    result = await db.execute(
+        select(Song).where(Song.source == "community", Song.properties.isnot(None)).order_by(Song.created_at.desc()).limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_community_popular(db: AsyncSession, window: str, limit: int = 10) -> list[dict]:
+    cutoff = _window_cutoff(window)
+    q = (
+        select(Song, func.count(SongPlay.id).label("count"))
+        .join(SongPlay, Song.uuid == SongPlay.song_id)
+        .where(Song.source == "community")
+        .group_by(Song.uuid)
+        .order_by(func.count(SongPlay.id).desc())
+        .limit(limit)
+    )
+    if cutoff:
+        q = q.where(SongPlay.played_at >= cutoff)
+    result = await db.execute(q)
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
 
 
 async def get_user_recently_saved(db: AsyncSession, user_id: str, window: str = "all", limit: int = 10) -> list[dict]:
@@ -376,7 +400,7 @@ async def get_user_most_downloaded(db: AsyncSession, user_id: str, window: str =
     if cutoff:
         q = q.where(SongDownload.downloaded_at >= cutoff)
     result = await db.execute(q)
-    return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
 
 
 # --- edit jobs ---

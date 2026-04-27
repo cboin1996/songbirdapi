@@ -21,6 +21,10 @@ test:
 test-integration:
 	ENV=dev uv run pytest tests/integration -v
 
+.PHONY: migrate
+migrate:
+	uv run alembic upgrade head
+
 .PHONY: local-run
 local-run:
 	uv run uvicorn $(APP_NAME).server:app --host 0.0.0.0 --reload

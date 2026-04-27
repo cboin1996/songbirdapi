@@ -36,27 +36,82 @@ def _build_speed_filters(speed: float) -> list[str]:
     return filters
 
 
+def _orig_to_buf_offset(orig_time: float, segs: list[tuple[float, float]]) -> float:
+    """Map an original-time position to its offset in the spliced output buffer."""
+    off = 0.0
+    for s, e in segs:
+        if orig_time <= s:
+            return off
+        if orig_time <= e:
+            return off + (orig_time - s)
+        off += e - s
+    return off
+
+
+def _build_volume_and_fades_filter(
+    volume: float,
+    fades: list[dict],
+    segs: list[tuple[float, float]],
+) -> str | None:
+    """
+    Build a combined volume+arbitrary-fades ffmpeg filter expression.
+    Each fade factor is a multiplier that is 1 everywhere except in the fade zone,
+    where it ramps linearly. Multiple non-overlapping fades multiply correctly.
+    Returns None if no filtering is needed.
+    """
+    fade_factors: list[str] = []
+    for fade in fades:
+        bs = _orig_to_buf_offset(float(fade['start']), segs)
+        be = _orig_to_buf_offset(float(fade['end']), segs)
+        dur = be - bs
+        if dur <= 0:
+            continue
+        if fade['type'] == 'in':
+            # 1 before bs, ramp 0→1 from bs to be, 1 after be
+            fade_factors.append(
+                f"if(lt(t,{bs:.6f}),1,if(lt(t,{be:.6f}),(t-{bs:.6f})/{dur:.6f},1))"
+            )
+        else:
+            # 1 before bs, ramp 1→0 from bs to be, 1 after be (silence handled by reaching 0)
+            fade_factors.append(
+                f"if(lt(t,{bs:.6f}),1,if(lt(t,{be:.6f}),({be:.6f}-t)/{dur:.6f},1))"
+            )
+
+    if not fade_factors and abs(volume - 1.0) < 1e-6:
+        return None
+
+    parts: list[str] = []
+    if abs(volume - 1.0) >= 1e-6:
+        parts.append(f"{volume:.6f}")
+    parts.extend(f"({f})" for f in fade_factors)
+
+    if not parts:
+        return None
+
+    expr = "*".join(parts)
+    return f"volume='{expr}':eval=frame"
+
+
 async def apply_edits(source_path: str, dest_path: str, params: dict) -> None:
-    """Run ffmpeg with trim/volume/fade/cut/speed/normalize params. Raises RuntimeError on failure."""
+    """Run ffmpeg with trim/volume/fades/cut/speed/normalize params. Raises RuntimeError on failure."""
     trim_start: float = params.get("trim_start") or 0.0
     trim_end: float | None = params.get("trim_end")
     volume: float = params.get("volume") or 1.0
-    fade_in: float = params.get("fade_in") or 0.0
-    fade_out: float = params.get("fade_out") or 0.0
+    fades: list[dict] = [f for f in (params.get("fades") or []) if float(f.get("end", 0)) > float(f.get("start", 0))]
     speed: float = params.get("speed") or 1.0
     normalize: bool = params.get("normalize") or False
     cuts: list[dict] = [c for c in (params.get("cuts") or []) if float(c.get("end", 0)) > float(c.get("start", 0))]
 
     if cuts:
-        await _apply_with_cuts(source_path, dest_path, trim_start, trim_end, volume, fade_in, fade_out, speed, normalize, cuts)
+        await _apply_with_cuts(source_path, dest_path, trim_start, trim_end, volume, fades, speed, normalize, cuts)
     else:
-        await _apply_simple(source_path, dest_path, trim_start, trim_end, volume, fade_in, fade_out, speed, normalize)
+        await _apply_simple(source_path, dest_path, trim_start, trim_end, volume, fades, speed, normalize)
 
 
 async def _apply_simple(
     source_path: str, dest_path: str,
     trim_start: float, trim_end: float | None,
-    volume: float, fade_in: float, fade_out: float,
+    volume: float, fades: list[dict],
     speed: float, normalize: bool,
 ) -> None:
     cmd = ["ffmpeg", "-y"]
@@ -66,19 +121,14 @@ async def _apply_simple(
     if trim_end is not None:
         cmd += ["-to", str(trim_end - trim_start)]
 
+    # Segs for offset mapping: use a large sentinel end if trim_end is None
+    seg_end = trim_end if trim_end is not None else 1e9
+    segs: list[tuple[float, float]] = [(trim_start, seg_end)]
+
     filters: list[str] = []
-    if volume != 1.0:
-        filters.append(f"volume={volume}")
-    if fade_in > 0:
-        filters.append(f"afade=t=in:st=0:d={fade_in}")
-    if fade_out > 0:
-        if trim_end is not None:
-            trimmed_dur = trim_end - trim_start
-        else:
-            source_dur = await _get_duration(source_path)
-            trimmed_dur = source_dur - trim_start
-        out_start = max(0.0, trimmed_dur - fade_out)
-        filters.append(f"afade=t=out:st={out_start}:d={fade_out}")
+    vf = _build_volume_and_fades_filter(volume, fades, segs)
+    if vf:
+        filters.append(vf)
     filters.extend(_build_speed_filters(speed))
     if normalize:
         filters.append("dynaudnorm")
@@ -92,7 +142,7 @@ async def _apply_simple(
 async def _apply_with_cuts(
     source_path: str, dest_path: str,
     trim_start: float, trim_end: float | None,
-    volume: float, fade_in: float, fade_out: float,
+    volume: float, fades: list[dict],
     speed: float, normalize: bool,
     cuts: list[dict],
 ) -> None:
@@ -125,10 +175,16 @@ async def _apply_with_cuts(
     if len(segments) == 1:
         s, e = segments[0]
         fi, fo = seg_fades[0]
-        await _apply_simple(source_path, dest_path, s, e, volume, fi or fade_in, fo or fade_out, speed, normalize)
+        # Merge per-cut fades with global fades for single-segment case
+        merged_fades = list(fades)
+        if fi > 0:
+            merged_fades.insert(0, {'start': s, 'end': s + fi, 'type': 'in'})
+        if fo > 0:
+            merged_fades.append({'start': e - fo, 'end': e, 'type': 'out'})
+        await _apply_simple(source_path, dest_path, s, e, volume, merged_fades, speed, normalize)
         return
 
-    # filter_complex: per-segment atrim + optional per-cut afades, then concat, then global volume/fades/speed/normalize
+    # filter_complex: per-segment atrim + optional per-cut afades, then concat, then global filters
     parts: list[str] = []
     for i, ((s, e), (fi, fo)) in enumerate(zip(segments, seg_fades)):
         seg_dur = e - s
@@ -143,15 +199,10 @@ async def _apply_with_cuts(
     n = len(segments)
     concat = "".join(f"[s{i}]" for i in range(n)) + f"concat=n={n}:v=0:a=1[cat]"
 
-    total_dur = sum(e - s for s, e in segments)
     af: list[str] = []
-    if volume != 1.0:
-        af.append(f"volume={volume}")
-    if fade_in > 0:
-        af.append(f"afade=t=in:st=0:d={fade_in}")
-    if fade_out > 0:
-        out_start = max(0.0, total_dur - fade_out)
-        af.append(f"afade=t=out:st={out_start}:d={fade_out}")
+    vf = _build_volume_and_fades_filter(volume, fades, segments)
+    if vf:
+        af.append(vf)
     af.extend(_build_speed_filters(speed))
     if normalize:
         af.append("dynaudnorm")

@@ -59,7 +59,7 @@ async def _run_import(job_id: str, dest_path: str, ext: str, user_id: str) -> No
                         if existing:
                             if os.path.exists(dest_path):
                                 os.remove(dest_path)
-                            await crud.update_import_job(db, job_id, EditJobStatus.done, song_id=existing.uuid, duplicate_of=existing.uuid)
+                            await crud.update_import_job(db, job_id, EditJobStatus.duplicate, song_id=existing.uuid, duplicate_of=existing.uuid)
                             return
 
                 song_uuid = os.path.splitext(os.path.basename(dest_path))[0]

@@ -1,6 +1,7 @@
 import os
 import shutil
 import uuid as _uuid
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -24,12 +25,17 @@ class CutRange(BaseModel):
     fade_out: float = Field(default=0.0, ge=0)
 
 
+class FadeRange(BaseModel):
+    start: float = Field(ge=0)
+    end: float = Field(ge=0)
+    type: Literal['in', 'out']
+
+
 class EditParams(BaseModel):
     trim_start: float = Field(default=0.0, ge=0)
     trim_end: float | None = Field(default=None, ge=0)
     volume: float = Field(default=1.0, ge=0.0, le=2.0)
-    fade_in: float = Field(default=0.0, ge=0)
-    fade_out: float = Field(default=0.0, ge=0)
+    fades: list[FadeRange] = Field(default_factory=list)
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
     normalize: bool = Field(default=False)
     cuts: list[CutRange] = Field(default_factory=list)

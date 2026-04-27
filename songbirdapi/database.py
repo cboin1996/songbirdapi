@@ -25,6 +25,9 @@ async def create_schema():
             "ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS duplicate_of TEXT"
         ))
         await conn.execute(text(
+            "ALTER TYPE editjobstatus ADD VALUE IF NOT EXISTS 'duplicate'"
+        ))
+        await conn.execute(text(
             "ALTER TABLE songs ADD COLUMN IF NOT EXISTS owner_id TEXT REFERENCES users(id) ON DELETE SET NULL"
         ))
         await conn.execute(text("""

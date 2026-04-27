@@ -11,6 +11,7 @@ class EditJobStatus(str, enum.Enum):
     processing = "processing"
     done = "done"
     failed = "failed"
+    duplicate = "duplicate"
 
 
 class Base(DeclarativeBase):

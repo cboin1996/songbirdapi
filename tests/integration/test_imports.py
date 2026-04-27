@@ -51,7 +51,10 @@ async def test_list_imports_empty(test_client: AsyncClient, admin_user):
     cookies = await login(test_client, admin_user)
     resp = await test_client.get("/v1/import", cookies=cookies)
     assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    body = resp.json()
+    assert "total" in body
+    assert "jobs" in body
+    assert isinstance(body["jobs"], list)
 
 
 async def test_list_imports_after_upload(test_client: AsyncClient, regular_user):
@@ -67,8 +70,9 @@ async def test_list_imports_after_upload(test_client: AsyncClient, regular_user)
     resp = await test_client.get("/v1/import", cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
-    assert isinstance(body, list)
-    assert any(j["job_id"] == job_id for j in body)
+    assert "total" in body
+    assert "jobs" in body
+    assert any(j["job_id"] == job_id for j in body["jobs"])
 
 
 async def test_get_import_job_requires_auth(test_client: AsyncClient):
@@ -97,3 +101,40 @@ async def test_get_import_job_found(test_client: AsyncClient, regular_user):
     body = resp.json()
     assert body["job_id"] == job_id
     assert "status" in body
+
+
+async def test_start_import_valid_m4a(test_client: AsyncClient, regular_user):
+    cookies = await login(test_client, regular_user)
+    resp = await test_client.post(
+        "/v1/import",
+        files={"file": ("song.m4a", MINIMAL_MP3, "audio/mp4")},
+        cookies=cookies,
+    )
+    assert resp.status_code == 202
+    body = resp.json()
+    assert "job_id" in body
+
+
+async def test_list_imports_pagination(test_client: AsyncClient, regular_user):
+    cookies = await login(test_client, regular_user)
+    resp = await test_client.get("/v1/import?limit=1&offset=0", cookies=cookies)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "total" in body
+    assert "jobs" in body
+    assert len(body["jobs"]) <= 1
+
+
+async def test_import_job_not_visible_to_other_user(test_client: AsyncClient, regular_user, admin_user):
+    reg_cookies = await login(test_client, regular_user)
+    post = await test_client.post(
+        "/v1/import",
+        files={"file": ("private.mp3", MINIMAL_MP3, "audio/mpeg")},
+        cookies=reg_cookies,
+    )
+    assert post.status_code == 202
+    job_id = post.json()["job_id"]
+
+    adm_cookies = await login(test_client, admin_user)
+    resp = await test_client.get(f"/v1/import/{job_id}", cookies=adm_cookies)
+    assert resp.status_code == 404

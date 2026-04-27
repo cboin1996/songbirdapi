@@ -76,3 +76,45 @@ async def test_update_position_not_in_library_returns_404(test_client: AsyncClie
     cookies = await login(test_client, regular_user)
     resp = await test_client.patch("/v1/library/00000000-0000-0000-0000-000000000000/position", json={"position": 10.0}, cookies=cookies)
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Auth required
+# ---------------------------------------------------------------------------
+
+async def test_get_library_requires_auth(test_client: AsyncClient):
+    resp = await test_client.get("/v1/library")
+    assert resp.status_code == 401
+
+
+async def test_add_to_library_requires_auth(test_client: AsyncClient, sample_song):
+    resp = await test_client.post(f"/v1/library/{sample_song.uuid}")
+    assert resp.status_code == 401
+
+
+async def test_remove_from_library_requires_auth(test_client: AsyncClient, sample_song):
+    resp = await test_client.delete(f"/v1/library/{sample_song.uuid}")
+    assert resp.status_code == 401
+
+
+async def test_update_position_requires_auth(test_client: AsyncClient, sample_song):
+    resp = await test_client.patch(f"/v1/library/{sample_song.uuid}/position", json={"position": 0.0})
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# POST /publish
+# ---------------------------------------------------------------------------
+
+async def test_publish_requires_auth(test_client: AsyncClient):
+    resp = await test_client.post("/v1/library/publish")
+    assert resp.status_code == 401
+
+
+async def test_publish_returns_count(test_client: AsyncClient, regular_user):
+    cookies = await login(test_client, regular_user)
+    resp = await test_client.post("/v1/library/publish", cookies=cookies)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "published" in body
+    assert isinstance(body["published"], int)

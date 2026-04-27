@@ -74,3 +74,127 @@ async def test_token_refresh(test_client: AsyncClient, regular_user):
     resp = await test_client.post("/v1/auth/refresh", cookies=login.cookies)
     assert resp.status_code == 200
     assert "access_token" in resp.cookies
+
+
+async def test_refresh_without_cookie_fails(test_client: AsyncClient):
+    resp = await test_client.post("/v1/auth/refresh")
+    assert resp.status_code == 401
+
+
+async def test_me_requires_auth(test_client: AsyncClient):
+    resp = await test_client.get("/v1/auth/me")
+    assert resp.status_code == 401
+
+
+async def test_register_duplicate_username(test_client: AsyncClient, admin_user):
+    import uuid
+    login_resp = await test_client.post("/v1/auth/login", json={"username": admin_user.username, "password": "testpass123"})
+    # register a new user
+    unique = uuid.uuid4().hex[:8]
+    await test_client.post(
+        "/v1/auth/register",
+        json={"username": unique, "email": f"{unique}@test.com", "password": "pass"},
+        cookies=login_resp.cookies,
+    )
+    # try registering same username again
+    resp = await test_client.post(
+        "/v1/auth/register",
+        json={"username": unique, "email": f"other_{unique}@test.com", "password": "pass"},
+        cookies=login_resp.cookies,
+    )
+    assert resp.status_code == 409
+
+
+async def test_register_duplicate_email(test_client: AsyncClient, admin_user):
+    import uuid
+    login_resp = await test_client.post("/v1/auth/login", json={"username": admin_user.username, "password": "testpass123"})
+    unique = uuid.uuid4().hex[:8]
+    await test_client.post(
+        "/v1/auth/register",
+        json={"username": unique, "email": f"{unique}@test.com", "password": "pass"},
+        cookies=login_resp.cookies,
+    )
+    resp = await test_client.post(
+        "/v1/auth/register",
+        json={"username": f"other_{unique}", "email": f"{unique}@test.com", "password": "pass"},
+        cookies=login_resp.cookies,
+    )
+    assert resp.status_code == 409
+
+
+async def test_register_without_auth(test_client: AsyncClient):
+    resp = await test_client.post(
+        "/v1/auth/register",
+        json={"username": "anon", "email": "anon@test.com", "password": "pass"},
+    )
+    assert resp.status_code == 401
+
+
+async def test_change_password(test_client: AsyncClient, admin_user):
+    import uuid
+    # register a throwaway user to change password on
+    admin_login = await test_client.post("/v1/auth/login", json={"username": admin_user.username, "password": "testpass123"})
+    uname = f"pwchange_{uuid.uuid4().hex[:6]}"
+    await test_client.post(
+        "/v1/auth/register",
+        json={"username": uname, "email": f"{uname}@test.com", "password": "oldpass"},
+        cookies=admin_login.cookies,
+    )
+    user_login = await test_client.post("/v1/auth/login", json={"username": uname, "password": "oldpass"})
+    assert user_login.status_code == 200
+
+    resp = await test_client.patch(
+        "/v1/auth/password",
+        json={"current_password": "oldpass", "new_password": "newpass"},
+        cookies=user_login.cookies,
+    )
+    assert resp.status_code == 204
+
+    # old password should no longer work
+    old_login = await test_client.post("/v1/auth/login", json={"username": uname, "password": "oldpass"})
+    assert old_login.status_code == 401
+
+    # new password should work
+    new_login = await test_client.post("/v1/auth/login", json={"username": uname, "password": "newpass"})
+    assert new_login.status_code == 200
+
+
+async def test_change_password_wrong_current(test_client: AsyncClient, regular_user):
+    login_resp = await test_client.post("/v1/auth/login", json={"username": regular_user.username, "password": "testpass123"})
+    resp = await test_client.patch(
+        "/v1/auth/password",
+        json={"current_password": "wrongpassword", "new_password": "newpass"},
+        cookies=login_resp.cookies,
+    )
+    assert resp.status_code == 401
+
+
+async def test_change_password_requires_auth(test_client: AsyncClient):
+    resp = await test_client.patch(
+        "/v1/auth/password",
+        json={"current_password": "x", "new_password": "y"},
+    )
+    assert resp.status_code == 401
+
+
+async def test_disabled_user_cannot_login(test_client: AsyncClient, admin_user):
+    import uuid
+    admin_login = await test_client.post("/v1/auth/login", json={"username": admin_user.username, "password": "testpass123"})
+    uname = f"disabled_{uuid.uuid4().hex[:6]}"
+    reg = await test_client.post(
+        "/v1/auth/register",
+        json={"username": uname, "email": f"{uname}@test.com", "password": "pass123"},
+        cookies=admin_login.cookies,
+    )
+    assert reg.status_code == 201
+    user_id = reg.json()["id"]
+
+    # disable the user
+    await test_client.patch(
+        f"/v1/admin/users/{user_id}",
+        json={"is_active": False},
+        cookies=admin_login.cookies,
+    )
+
+    resp = await test_client.post("/v1/auth/login", json={"username": uname, "password": "pass123"})
+    assert resp.status_code == 403

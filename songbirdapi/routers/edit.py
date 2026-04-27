@@ -132,7 +132,27 @@ async def create_edit_job(
     return EditJobResponse(job_id=job.id, status=job.status.value)
 
 
-@router.get("/songs/{id}/draft", response_model=EditParams)
+class DraftResponse(BaseModel):
+    params: EditParams
+    updated_at: str
+
+
+class DraftSummaryResponse(BaseModel):
+    song_id: str
+    properties: dict | None
+    artwork_cached: bool
+    updated_at: str
+
+
+@router.get("/drafts", response_model=list[DraftSummaryResponse])
+async def list_drafts(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await crud.list_user_drafts(db, current_user.id)
+
+
+@router.get("/songs/{id}/draft", response_model=DraftResponse)
 async def get_draft(
     id: str,
     db: AsyncSession = Depends(get_db),
@@ -141,7 +161,7 @@ async def get_draft(
     draft = await crud.get_edit_draft(db, current_user.id, id)
     if not draft:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no draft")
-    return draft.params
+    return DraftResponse(params=EditParams(**draft.params), updated_at=draft.updated_at.isoformat())
 
 
 @router.put("/songs/{id}/draft", status_code=status.HTTP_204_NO_CONTENT)

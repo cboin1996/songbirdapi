@@ -500,6 +500,24 @@ async def delete_edit_draft(db: AsyncSession, user_id: str, song_id: str) -> boo
     return result.rowcount > 0
 
 
+async def list_user_drafts(db: AsyncSession, user_id: str) -> list[dict]:
+    result = await db.execute(
+        select(SongEditDraft, Song)
+        .join(Song, SongEditDraft.song_id == Song.uuid)
+        .where(SongEditDraft.user_id == user_id)
+        .order_by(SongEditDraft.updated_at.desc())
+    )
+    return [
+        {
+            "song_id": draft.song_id,
+            "properties": song.properties,
+            "artwork_cached": song.artwork_thumb is not None,
+            "updated_at": draft.updated_at.isoformat(),
+        }
+        for draft, song in result.all()
+    ]
+
+
 # --- share tokens ---
 
 async def create_share_token(db: AsyncSession, song_id: str, user_id: str, ttl_days: int = 7) -> SongShareToken:

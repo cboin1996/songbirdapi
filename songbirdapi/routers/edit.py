@@ -64,7 +64,8 @@ async def _run_edit_job(job_id: str, source_song_id: str, user_id: str, params: 
 
         if overwrite:
             dest_path = source.file_path
-            tmp_path = dest_path + ".tmp"
+            base, ext = os.path.splitext(dest_path)
+            tmp_path = f"{base}_tmp{ext}"
             try:
                 await apply_edits(source.file_path, tmp_path, params)
                 os.replace(tmp_path, dest_path)

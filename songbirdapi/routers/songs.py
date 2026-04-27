@@ -1,12 +1,16 @@
+import os
 from typing import Literal
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_user, get_db
+from ..dependencies import get_current_user, get_db, load_settings
 from ..models import User
 from .. import crud
+
+_config = load_settings()
 
 router = APIRouter(prefix="/songs", tags=["songs"])
 
@@ -15,8 +19,27 @@ class SongResponse(BaseModel):
     uuid: str
     url: str
     properties: dict | None
+    artwork_cached: bool = False
+    owner_id: str | None = None
+    root_song_id: str | None = None
+    parent_song_id: str | None = None
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode='before')
+    @classmethod
+    def _compute_artwork_cached(cls, data):
+        if hasattr(data, 'artwork_thumb'):
+            return {
+                'uuid': data.uuid,
+                'url': data.url,
+                'properties': data.properties,
+                'artwork_cached': data.artwork_thumb is not None,
+                'owner_id': data.owner_id,
+                'root_song_id': getattr(data, 'root_song_id', None),
+                'parent_song_id': getattr(data, 'parent_song_id', None),
+            }
+        return data
 
 
 class LibrarySongResponse(SongResponse):
@@ -57,9 +80,9 @@ class ExploreResponse(BaseModel):
 @router.get("/", response_model=list[SongResponse])
 async def list_songs(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    return await crud.list_songs(db)
+    return await crud.list_songs(db, user_id=current_user.id)
 
 
 @router.get("/library", response_model=list[LibrarySongResponse])
@@ -70,25 +93,16 @@ async def list_library(
     return await crud.list_library_with_songs(db, current_user.id)
 
 
-@router.post("/{id}/play", status_code=204)
-async def record_play(
-    id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    await crud.record_play(db, id, current_user.id)
-
-
 @router.get("/explore", response_model=ExploreResponse)
 async def explore(
     window: Literal["day", "week", "all"] = "week",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    most_played = await crud.get_popular_songs(db, window)
-    most_downloaded = await crud.get_popular_downloads(db, window)
-    most_libraryed = await crud.get_most_libraryed(db, window)
-    recently_added = await crud.get_recently_added(db)
+    most_played = await crud.get_popular_songs(db, window, user_id=current_user.id)
+    most_downloaded = await crud.get_popular_downloads(db, window, user_id=current_user.id)
+    most_libraryed = await crud.get_most_libraryed(db, window, user_id=current_user.id)
+    recently_added = await crud.get_recently_added(db, user_id=current_user.id)
     your_most_played = await crud.get_user_most_played(db, current_user.id, window)
     your_most_downloaded = await crud.get_user_most_downloaded(db, current_user.id, window)
     your_recently_saved = await crud.get_user_recently_saved(db, current_user.id, window)
@@ -103,3 +117,61 @@ async def explore(
         your_recently_saved=your_recently_saved,
         your_recently_played=your_recently_played,
     )
+
+
+@router.post("/{id}/play", status_code=204)
+async def record_play(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await crud.record_play(db, id, current_user.id)
+
+
+@router.get("/{id}/artwork")
+async def get_artwork(
+    id: str,
+    size: Literal["thumb", "full"] = "full",
+    db: AsyncSession = Depends(get_db),
+):
+    song = await crud.get_song(db, id)
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+    path = song.artwork_thumb if size == "thumb" else song.artwork_full
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artwork not cached")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@router.post("/{id}/artwork", status_code=200)
+async def upload_artwork(
+    id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    song = await crud.get_song(db, id)
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    if song.owner_id and song.owner_id != current_user.id and current_user.role.value != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    MAX_ARTWORK_BYTES = 10 * 1024 * 1024  # 10 MB
+    if file.size is not None and file.size > MAX_ARTWORK_BYTES:
+        raise HTTPException(status_code=413, detail="Artwork file too large (max 10 MB)")
+    content = await file.read()
+    if len(content) > MAX_ARTWORK_BYTES:
+        raise HTTPException(status_code=413, detail="Artwork file too large (max 10 MB)")
+
+    from ..artwork import store_artwork_from_bytes
+    try:
+        thumb_path, full_path = await store_artwork_from_bytes(id, content, _config.artwork_dir)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await crud.update_song_artwork(db, id, thumb_path, full_path)
+
+    props = dict(song.properties or {})
+    props["artworkUrl100"] = f"/v1/songs/{id}/artwork"
+    await crud.update_song_properties(db, id, props)
+
+    return {"ok": True}

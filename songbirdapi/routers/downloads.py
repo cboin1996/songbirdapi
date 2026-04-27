@@ -10,13 +10,13 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.logger import logger
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from songbirdcore import youtube
 from songbirdcore.models.itunes_api import ItunesApiSongModel
 
 from songbirdapi import crud
-from songbirdapi.models import Song, User
+from songbirdapi.models import ErrorLog, Song, User
 from ..dependencies import get_current_user, get_db, load_settings, process_song_url
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
@@ -37,7 +37,7 @@ class FileFormats(enum.StrEnum):
 
 
 class DownloadBody(BaseModel):
-    url: str
+    url: str = Field(..., max_length=2048)
     ignore_cache: bool = False
     embed_thumbnail: bool = False
     file_format: FileFormats = FileFormats.mp3
@@ -79,6 +79,16 @@ async def download(
     )
 
     if not file_path:
+        err = ErrorLog(
+            id=str(uuid.uuid4()),
+            level="error",
+            path="/download/",
+            method="POST",
+            status_code=500,
+            message=f"yt-dlp failed for url {url}",
+        )
+        db.add(err)
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Could not perform download of song at url {url}",

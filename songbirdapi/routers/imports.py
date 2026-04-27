@@ -1,0 +1,156 @@
+import asyncio
+import os
+import uuid
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from songbirdcore import itunes
+
+from .. import crud, database
+from ..dependencies import get_current_user, get_db, load_settings
+from ..models import EditJobStatus, ImportJob, Song, User
+
+_config = load_settings()
+router = APIRouter(prefix="/import", tags=["import"])
+_import_semaphore = asyncio.Semaphore(5)
+
+
+class ImportJobResponse(BaseModel):
+    job_id: str
+    status: str
+    song_id: str | None = None
+    track_name: str | None = None
+    error: str | None = None
+    duplicate_of: str | None = None
+    filename: str | None = None
+    created_at: str | None = None
+
+
+class ImportJobsPage(BaseModel):
+    total: int
+    jobs: list[ImportJobResponse]
+
+
+async def _run_import(job_id: str, dest_path: str, ext: str, user_id: str) -> None:
+    async with _import_semaphore:
+        async with database._session_factory() as db:
+            await crud.update_import_job(db, job_id, EditJobStatus.processing)
+            try:
+                props = None
+                try:
+                    if ext == ".mp3":
+                        model = itunes.mp3_tag_reader(dest_path)
+                    else:
+                        model = itunes.m4a_tag_reader(dest_path)
+                    if model:
+                        props = model.model_dump()
+                except Exception:
+                    pass
+
+                # duplicate detection
+                if props:
+                    track_name = props.get("trackName")
+                    artist_name = props.get("artistName")
+                    if track_name and artist_name:
+                        existing = await crud.find_song_by_track_artist(db, track_name, artist_name)
+                        if existing:
+                            if os.path.exists(dest_path):
+                                os.remove(dest_path)
+                            await crud.update_import_job(db, job_id, EditJobStatus.duplicate, song_id=existing.uuid, duplicate_of=existing.uuid)
+                            return
+
+                song_uuid = os.path.splitext(os.path.basename(dest_path))[0]
+                song = Song(uuid=song_uuid, url="", file_path=dest_path, properties=props, owner_id=user_id)
+                db.add(song)
+                await db.commit()
+                await crud.add_to_library(db, user_id, song_uuid)
+                await crud.update_import_job(db, job_id, EditJobStatus.done, song_id=song_uuid)
+            except Exception as exc:
+                if os.path.exists(dest_path):
+                    os.remove(dest_path)
+                await crud.update_import_job(db, job_id, EditJobStatus.failed, error=str(exc))
+
+
+@router.get("")
+async def list_imports(
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ImportJobsPage:
+    total = (await db.execute(
+        select(func.count()).select_from(ImportJob).where(ImportJob.user_id == current_user.id)
+    )).scalar_one()
+    jobs = await crud.list_import_jobs(db, current_user.id, limit=limit, offset=offset)
+    responses = []
+    for job in jobs:
+        track_name: str | None = None
+        if job.song_id:
+            song = await crud.get_song(db, job.song_id)
+            if song and song.properties:
+                track_name = song.properties.get("trackName")
+        responses.append(ImportJobResponse(
+            job_id=job.id,
+            status=job.status.value,
+            song_id=job.song_id,
+            track_name=track_name,
+            error=job.error,
+            duplicate_of=job.duplicate_of,
+            filename=job.filename,
+            created_at=job.created_at.isoformat() if job.created_at else None,
+        ))
+    return ImportJobsPage(total=total, jobs=responses)
+
+
+@router.post("", status_code=status.HTTP_202_ACCEPTED)
+async def start_import(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ImportJobResponse:
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in (".mp3", ".m4a"):
+        raise HTTPException(status_code=400, detail="only mp3 and m4a supported")
+
+    new_uuid = str(uuid.uuid4())
+    dest_path = os.path.join(_config.downloads_dir, f"{new_uuid}{ext}")
+
+    content = await file.read()
+    with open(dest_path, "wb") as f:
+        f.write(content)
+
+    job = await crud.create_import_job(db, current_user.id, file.filename or "")
+    background_tasks.add_task(_run_import, job.id, dest_path, ext, current_user.id)
+    return ImportJobResponse(job_id=job.id, status=job.status.value)
+
+
+@router.get("/{job_id}")
+async def get_import_status(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ImportJobResponse:
+    job = await crud.get_import_job(db, job_id)
+    if not job or job.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    track_name: str | None = None
+    if job.song_id:
+        song = await crud.get_song(db, job.song_id)
+        if song and song.properties:
+            track_name = song.properties.get("trackName")
+
+    return ImportJobResponse(
+        job_id=job.id,
+        status=job.status.value,
+        song_id=job.song_id,
+        track_name=track_name,
+        error=job.error,
+        duplicate_of=job.duplicate_of,
+        filename=job.filename,
+        created_at=job.created_at.isoformat() if job.created_at else None,
+    )

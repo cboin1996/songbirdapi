@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import RepeatMode, Role, Song, SongDownload, SongPlay, SongShareToken, User, UserPlayerState, UserSong
+from .models import EditJob, EditJobStatus, ImportJob, Playlist, PlaylistSong, RepeatMode, Role, Song, SongDownload, SongEditDraft, SongPlay, SongShareToken, User, UserPlayerState, UserSong
 
 
 async def get_song(db: AsyncSession, uuid: str) -> Optional[Song]:
@@ -25,6 +25,18 @@ async def insert_song(db: AsyncSession, song: Song) -> Song:
     return song
 
 
+async def update_song_artwork(db: AsyncSession, uuid: str, thumb_path: str | None, full_path: str | None) -> Optional[Song]:
+    song = await get_song(db, uuid)
+    if not song:
+        return None
+    if thumb_path is not None:
+        song.artwork_thumb = thumb_path
+    if full_path is not None:
+        song.artwork_full = full_path
+    await db.commit()
+    return song
+
+
 async def update_song_properties(db: AsyncSession, uuid: str, properties: dict) -> Optional[Song]:
     song = await get_song(db, uuid)
     if not song:
@@ -41,9 +53,31 @@ async def delete_song(db: AsyncSession, uuid: str) -> bool:
     return result.rowcount > 0
 
 
-async def search_songs(db: AsyncSession, query: str) -> list[Song]:
+def _is_publish_eligible(properties: dict | None) -> bool:
+    if not properties:
+        return False
+    required = ["trackName", "artistName", "collectionName", "artworkUrl100", "primaryGenreName"]
+    return all(bool(properties.get(f)) for f in required)
+
+
+async def publish_song(db: AsyncSession, song_id: str) -> None:
+    song = await get_song(db, song_id)
+    if song:
+        song.owner_id = None
+        await db.commit()
+
+
+def _owner_filter(user_id: str | None):
+    from sqlalchemy import or_
+    if user_id:
+        return or_(Song.owner_id.is_(None), Song.owner_id == user_id)
+    return Song.owner_id.is_(None)
+
+
+async def search_songs(db: AsyncSession, query: str, user_id: str | None = None) -> list[Song]:
     result = await db.execute(
         select(Song).where(
+            _owner_filter(user_id),
             func.to_tsvector(
                 "english",
                 func.coalesce(Song.properties["trackName"].as_string(), "")
@@ -57,8 +91,8 @@ async def search_songs(db: AsyncSession, query: str) -> list[Song]:
     return list(result.scalars().all())
 
 
-async def list_songs(db: AsyncSession) -> list[Song]:
-    result = await db.execute(select(Song))
+async def list_songs(db: AsyncSession, user_id: str | None = None) -> list[Song]:
+    result = await db.execute(select(Song).where(_owner_filter(user_id)))
     return list(result.scalars().all())
 
 
@@ -125,6 +159,10 @@ async def list_library_with_songs(db: AsyncSession, user_id: str) -> list[dict]:
             "uuid": song.uuid,
             "url": song.url,
             "properties": song.properties,
+            "artwork_cached": song.artwork_thumb is not None,
+            "parent_song_id": song.parent_song_id,
+            "root_song_id": song.root_song_id,
+            "owner_id": song.owner_id,
             "added_at": entry.added_at.isoformat(),
             "last_position": entry.last_position,
             "last_played_at": entry.last_played_at.isoformat() if entry.last_played_at else None,
@@ -164,6 +202,25 @@ async def remove_from_library(db: AsyncSession, user_id: str, song_id: str) -> b
     return result.rowcount > 0
 
 
+async def library_ref_count(db: AsyncSession, song_id: str) -> int:
+    result = await db.execute(select(func.count()).where(UserSong.song_id == song_id))
+    return result.scalar_one()
+
+
+async def delete_song(db: AsyncSession, song_id: str) -> None:
+    import os
+    song = await get_song(db, song_id)
+    if not song:
+        return
+    await db.execute(delete(Song).where(Song.uuid == song_id))
+    await db.commit()
+    if song.file_path and os.path.exists(song.file_path):
+        try:
+            os.remove(song.file_path)
+        except OSError:
+            pass
+
+
 # --- plays / downloads ---
 
 def _window_cutoff(window: str) -> datetime | None:
@@ -195,11 +252,12 @@ async def record_download(db: AsyncSession, song_id: str, user_id: str) -> None:
     await db.commit()
 
 
-async def get_popular_songs(db: AsyncSession, window: str, limit: int = 10) -> list[dict]:
+async def get_popular_songs(db: AsyncSession, window: str, limit: int = 10, user_id: str | None = None) -> list[dict]:
     cutoff = _window_cutoff(window)
     q = (
         select(Song, func.count(SongPlay.id).label("count"))
         .join(SongPlay, Song.uuid == SongPlay.song_id)
+        .where(_owner_filter(user_id))
         .group_by(Song.uuid)
         .order_by(func.count(SongPlay.id).desc())
         .limit(limit)
@@ -210,11 +268,12 @@ async def get_popular_songs(db: AsyncSession, window: str, limit: int = 10) -> l
     return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
 
 
-async def get_popular_downloads(db: AsyncSession, window: str, limit: int = 10) -> list[dict]:
+async def get_popular_downloads(db: AsyncSession, window: str, limit: int = 10, user_id: str | None = None) -> list[dict]:
     cutoff = _window_cutoff(window)
     q = (
         select(Song, func.count(SongDownload.id).label("count"))
         .join(SongDownload, Song.uuid == SongDownload.song_id)
+        .where(_owner_filter(user_id))
         .group_by(Song.uuid)
         .order_by(func.count(SongDownload.id).desc())
         .limit(limit)
@@ -225,18 +284,19 @@ async def get_popular_downloads(db: AsyncSession, window: str, limit: int = 10) 
     return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
 
 
-async def get_recently_added(db: AsyncSession, limit: int = 10) -> list[Song]:
+async def get_recently_added(db: AsyncSession, limit: int = 10, user_id: str | None = None) -> list[Song]:
     result = await db.execute(
-        select(Song).where(Song.properties.isnot(None)).order_by(Song.created_at.desc()).limit(limit)
+        select(Song).where(Song.properties.isnot(None), _owner_filter(user_id)).order_by(Song.created_at.desc()).limit(limit)
     )
     return list(result.scalars().all())
 
 
-async def get_most_libraryed(db: AsyncSession, window: str, limit: int = 10) -> list[dict]:
+async def get_most_libraryed(db: AsyncSession, window: str, limit: int = 10, user_id: str | None = None) -> list[dict]:
     cutoff = _window_cutoff(window)
     q = (
         select(Song, func.count(UserSong.song_id).label("count"))
         .join(UserSong, Song.uuid == UserSong.song_id)
+        .where(_owner_filter(user_id))
         .group_by(Song.uuid)
         .order_by(func.count(UserSong.song_id).desc())
         .limit(limit)
@@ -319,6 +379,145 @@ async def get_user_most_downloaded(db: AsyncSession, user_id: str, window: str =
     return [{"uuid": s.uuid, "properties": s.properties, "count": c} for s, c in result.all()]
 
 
+# --- edit jobs ---
+
+async def create_edit_job(db: AsyncSession, source_song_id: str, user_id: str, params: dict) -> EditJob:
+    job = EditJob(id=str(_uuid.uuid4()), source_song_id=source_song_id, user_id=user_id, params=params)
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    return job
+
+
+async def get_edit_job(db: AsyncSession, job_id: str) -> Optional[EditJob]:
+    result = await db.execute(select(EditJob).where(EditJob.id == job_id))
+    return result.scalar_one_or_none()
+
+
+async def update_edit_job(
+    db: AsyncSession,
+    job_id: str,
+    status: EditJobStatus,
+    result_song_id: str | None = None,
+    error: str | None = None,
+) -> None:
+    job = await get_edit_job(db, job_id)
+    if not job:
+        return
+    job.status = status
+    job.updated_at = datetime.now(timezone.utc)
+    if result_song_id is not None:
+        job.result_song_id = result_song_id
+    if error is not None:
+        job.error = error
+    await db.commit()
+
+
+# --- import jobs ---
+
+async def create_import_job(db: AsyncSession, user_id: str, filename: str) -> ImportJob:
+    job = ImportJob(id=str(_uuid.uuid4()), user_id=user_id, filename=filename)
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    return job
+
+
+async def get_import_job(db: AsyncSession, job_id: str) -> Optional[ImportJob]:
+    result = await db.execute(select(ImportJob).where(ImportJob.id == job_id))
+    return result.scalar_one_or_none()
+
+
+async def list_import_jobs(db: AsyncSession, user_id: str, limit: int = 20, offset: int = 0) -> list[ImportJob]:
+    result = await db.execute(
+        select(ImportJob)
+        .where(ImportJob.user_id == user_id)
+        .order_by(ImportJob.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def find_song_by_track_artist(db: AsyncSession, track_name: str, artist_name: str) -> Optional[Song]:
+    result = await db.execute(
+        select(Song).where(
+            Song.properties["trackName"].astext == track_name,
+            Song.properties["artistName"].astext == artist_name,
+        )
+    )
+    return result.scalars().first()
+
+
+async def update_import_job(
+    db: AsyncSession,
+    job_id: str,
+    status: EditJobStatus,
+    song_id: str | None = None,
+    error: str | None = None,
+    duplicate_of: str | None = None,
+) -> None:
+    job = await get_import_job(db, job_id)
+    if not job:
+        return
+    job.status = status
+    job.updated_at = datetime.now(timezone.utc)
+    if song_id is not None:
+        job.song_id = song_id
+    if error is not None:
+        job.error = error
+    if duplicate_of is not None:
+        job.duplicate_of = duplicate_of
+    await db.commit()
+
+
+# --- edit drafts ---
+
+async def get_edit_draft(db: AsyncSession, user_id: str, song_id: str) -> Optional[SongEditDraft]:
+    result = await db.execute(
+        select(SongEditDraft).where(SongEditDraft.user_id == user_id, SongEditDraft.song_id == song_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def upsert_edit_draft(db: AsyncSession, user_id: str, song_id: str, params: dict) -> SongEditDraft:
+    draft = await get_edit_draft(db, user_id, song_id)
+    if draft is None:
+        draft = SongEditDraft(user_id=user_id, song_id=song_id, params=params)
+        db.add(draft)
+    else:
+        draft.params = params
+        draft.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return draft
+
+
+async def delete_edit_draft(db: AsyncSession, user_id: str, song_id: str) -> bool:
+    result = await db.execute(
+        delete(SongEditDraft).where(SongEditDraft.user_id == user_id, SongEditDraft.song_id == song_id)
+    )
+    await db.commit()
+    return result.rowcount > 0
+
+
+async def list_user_drafts(db: AsyncSession, user_id: str) -> list[dict]:
+    result = await db.execute(
+        select(SongEditDraft, Song)
+        .join(Song, SongEditDraft.song_id == Song.uuid)
+        .where(SongEditDraft.user_id == user_id)
+        .order_by(SongEditDraft.updated_at.desc())
+    )
+    return [
+        {
+            "song_id": draft.song_id,
+            "properties": song.properties,
+            "artwork_cached": song.artwork_thumb is not None,
+            "updated_at": draft.updated_at.isoformat(),
+        }
+        for draft, song in result.all()
+    ]
+
+
 # --- share tokens ---
 
 async def create_share_token(db: AsyncSession, song_id: str, user_id: str, ttl_days: int = 7) -> SongShareToken:
@@ -363,3 +562,97 @@ async def upsert_player_state(
     await db.commit()
     await db.refresh(state)
     return state
+
+
+# --- Playlists ---
+
+async def create_playlist(db: AsyncSession, user_id: str, name: str) -> Playlist:
+    pl = Playlist(id=str(_uuid.uuid4()), user_id=user_id, name=name)
+    db.add(pl)
+    await db.commit()
+    await db.refresh(pl)
+    return pl
+
+
+async def get_playlist(db: AsyncSession, playlist_id: str) -> Optional[Playlist]:
+    result = await db.execute(select(Playlist).where(Playlist.id == playlist_id))
+    return result.scalar_one_or_none()
+
+
+async def list_playlists(db: AsyncSession, user_id: str) -> list[Playlist]:
+    result = await db.execute(
+        select(Playlist).where(Playlist.user_id == user_id).order_by(Playlist.created_at.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def rename_playlist(db: AsyncSession, playlist_id: str, name: str) -> Optional[Playlist]:
+    pl = await get_playlist(db, playlist_id)
+    if not pl:
+        return None
+    pl.name = name
+    await db.commit()
+    await db.refresh(pl)
+    return pl
+
+
+async def delete_playlist(db: AsyncSession, playlist_id: str) -> bool:
+    pl = await get_playlist(db, playlist_id)
+    if not pl:
+        return False
+    await db.delete(pl)
+    await db.commit()
+    return True
+
+
+async def get_playlist_songs(db: AsyncSession, playlist_id: str) -> list[Song]:
+    result = await db.execute(
+        select(Song)
+        .join(PlaylistSong, Song.uuid == PlaylistSong.song_uuid)
+        .where(PlaylistSong.playlist_id == playlist_id)
+        .order_by(PlaylistSong.position.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def add_song_to_playlist(db: AsyncSession, playlist_id: str, song_uuid: str) -> bool:
+    result = await db.execute(
+        select(func.max(PlaylistSong.position)).where(PlaylistSong.playlist_id == playlist_id)
+    )
+    max_pos = result.scalar_one_or_none() or -1
+    ps = PlaylistSong(playlist_id=playlist_id, song_uuid=song_uuid, position=max_pos + 1)
+    db.add(ps)
+    try:
+        await db.commit()
+        return True
+    except Exception:
+        await db.rollback()
+        return False
+
+
+async def remove_song_from_playlist(db: AsyncSession, playlist_id: str, song_uuid: str) -> bool:
+    result = await db.execute(
+        select(PlaylistSong).where(
+            PlaylistSong.playlist_id == playlist_id,
+            PlaylistSong.song_uuid == song_uuid,
+        )
+    )
+    ps = result.scalar_one_or_none()
+    if not ps:
+        return False
+    await db.delete(ps)
+    await db.commit()
+    return True
+
+
+async def reorder_playlist(db: AsyncSession, playlist_id: str, song_uuids: list[str]) -> bool:
+    """Replace the playlist order with the given ordered list of song UUIDs."""
+    result = await db.execute(
+        select(PlaylistSong).where(PlaylistSong.playlist_id == playlist_id)
+    )
+    existing = {ps.song_uuid: ps for ps in result.scalars().all()}
+    for i, uuid in enumerate(song_uuids):
+        if uuid in existing:
+            existing[uuid].position = i
+    await db.commit()
+    return True

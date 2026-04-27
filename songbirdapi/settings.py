@@ -13,7 +13,8 @@ class SongbirdServerConfig(BaseSettings):
     version: str = ""
     root_path: str = sys.path[0]
     downloads_dir: str = os.path.join(root_path, "data", "downloads")
-    dirs: List[str] = [downloads_dir]
+    artwork_dir: str = os.path.join(root_path, "data", "artwork")
+    dirs: List[str] = [downloads_dir, artwork_dir]
     api_key: str
     jwt_secret: str
     cors_origins: str = "http://localhost:3000"

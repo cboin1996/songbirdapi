@@ -599,8 +599,8 @@ async def upsert_player_state(
 
 # --- Playlists ---
 
-async def create_playlist(db: AsyncSession, user_id: str, name: str) -> Playlist:
-    pl = Playlist(id=str(_uuid.uuid4()), user_id=user_id, name=name)
+async def create_playlist(db: AsyncSession, user_id: str, name: str, icon: Optional[str] = None) -> Playlist:
+    pl = Playlist(id=str(_uuid.uuid4()), user_id=user_id, name=name, icon=icon)
     db.add(pl)
     await db.commit()
     await db.refresh(pl)
@@ -619,11 +619,13 @@ async def list_playlists(db: AsyncSession, user_id: str) -> list[Playlist]:
     return list(result.scalars().all())
 
 
-async def rename_playlist(db: AsyncSession, playlist_id: str, name: str) -> Optional[Playlist]:
+async def rename_playlist(db: AsyncSession, playlist_id: str, name: str, icon: Optional[str] = None) -> Optional[Playlist]:
     pl = await get_playlist(db, playlist_id)
     if not pl:
         return None
     pl.name = name
+    if icon is not None:
+        pl.icon = icon
     await db.commit()
     await db.refresh(pl)
     return pl

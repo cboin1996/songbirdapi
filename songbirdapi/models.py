@@ -1,5 +1,6 @@
 import enum
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, String, Text, cast, Date, func
 from sqlalchemy.dialects.postgresql import JSONB
@@ -164,6 +165,7 @@ class Playlist(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    icon: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

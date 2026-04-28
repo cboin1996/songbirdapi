@@ -13,6 +13,7 @@ router = APIRouter(prefix="/playlists", tags=["playlists"])
 class PlaylistResponse(BaseModel):
     id: str
     name: str
+    icon: str | None = None
     created_at: datetime
     updated_at: datetime
     song_count: int = 0
@@ -20,10 +21,12 @@ class PlaylistResponse(BaseModel):
 
 class CreatePlaylistBody(BaseModel):
     name: str
+    icon: str | None = None
 
 
 class RenamePlaylistBody(BaseModel):
     name: str
+    icon: str | None = None
 
 
 class AddSongBody(BaseModel):
@@ -48,7 +51,7 @@ async def list_playlists(
     for pl in playlists:
         songs = await crud.get_playlist_songs(db, pl.id)
         results.append(PlaylistResponse(
-            id=pl.id, name=pl.name,
+            id=pl.id, name=pl.name, icon=pl.icon,
             created_at=pl.created_at, updated_at=pl.updated_at,
             song_count=len(songs),
         ))
@@ -61,8 +64,8 @@ async def create_playlist(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    pl = await crud.create_playlist(db, current_user.id, body.name.strip() or "untitled")
-    return PlaylistResponse(id=pl.id, name=pl.name, created_at=pl.created_at, updated_at=pl.updated_at)
+    pl = await crud.create_playlist(db, current_user.id, body.name.strip() or "untitled", body.icon)
+    return PlaylistResponse(id=pl.id, name=pl.name, icon=pl.icon, created_at=pl.created_at, updated_at=pl.updated_at)
 
 
 @router.patch("/{playlist_id}", response_model=PlaylistResponse)
@@ -75,9 +78,9 @@ async def rename_playlist(
     pl = await crud.get_playlist(db, playlist_id)
     if not pl or pl.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Playlist not found")
-    pl = await crud.rename_playlist(db, playlist_id, body.name)
+    pl = await crud.rename_playlist(db, playlist_id, body.name, body.icon)
     songs = await crud.get_playlist_songs(db, playlist_id)
-    return PlaylistResponse(id=pl.id, name=pl.name, created_at=pl.created_at, updated_at=pl.updated_at, song_count=len(songs))
+    return PlaylistResponse(id=pl.id, name=pl.name, icon=pl.icon, created_at=pl.created_at, updated_at=pl.updated_at, song_count=len(songs))
 
 
 @router.delete("/{playlist_id}", status_code=status.HTTP_204_NO_CONTENT)

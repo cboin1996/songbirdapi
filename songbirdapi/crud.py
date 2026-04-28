@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import EditJob, EditJobStatus, ImportJob, Playlist, PlaylistSong, RepeatMode, Role, Song, SongDownload, SongEditDraft, SongPlay, SongShareToken, User, UserPlayerState, UserSong
+from .models import EditJob, EditJobStatus, ImportJob, Playlist, PlaylistSong, RepeatMode, Role, Song, SongDownload, SongEditDraft, SongPlay, SongShareToken, User, UserOfflineSong, UserPlayerState, UserSong
 
 
 async def get_song(db: AsyncSession, uuid: str) -> Optional[Song]:
@@ -707,3 +707,48 @@ async def reorder_playlist(db: AsyncSession, playlist_id: str, song_uuids: list[
             existing[uuid].position = i
     await db.commit()
     return True
+
+
+async def get_offline_song_ids(db: AsyncSession, user_id: str) -> list[str]:
+    result = await db.execute(
+        select(UserOfflineSong.song_id).where(UserOfflineSong.user_id == user_id)
+    )
+    return list(result.scalars().all())
+
+
+async def add_offline_song(db: AsyncSession, user_id: str, song_id: str) -> None:
+    existing = await db.execute(
+        select(UserOfflineSong).where(
+            UserOfflineSong.user_id == user_id,
+            UserOfflineSong.song_id == song_id,
+        )
+    )
+    if existing.scalar_one_or_none():
+        return
+    db.add(UserOfflineSong(user_id=user_id, song_id=song_id))
+    await db.commit()
+
+
+async def remove_offline_song(db: AsyncSession, user_id: str, song_id: str) -> None:
+    await db.execute(
+        delete(UserOfflineSong).where(
+            UserOfflineSong.user_id == user_id,
+            UserOfflineSong.song_id == song_id,
+        )
+    )
+    await db.commit()
+
+
+async def sync_offline_songs(db: AsyncSession, user_id: str, local_ids: list[str]) -> list[str]:
+    """Upsert all local_ids for this user; return ids that are on server but not in local_ids."""
+    server_ids = set(await get_offline_song_ids(db, user_id))
+    local_set = set(local_ids)
+    for song_id in local_set - server_ids:
+        db.add(UserOfflineSong(user_id=user_id, song_id=song_id))
+    await db.commit()
+    return list(server_ids - local_set)
+
+
+async def clear_offline_songs(db: AsyncSession, user_id: str) -> None:
+    await db.execute(delete(UserOfflineSong).where(UserOfflineSong.user_id == user_id))
+    await db.commit()

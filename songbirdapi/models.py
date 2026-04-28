@@ -175,6 +175,14 @@ class PlaylistSong(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class UserOfflineSong(Base):
+    __tablename__ = "user_offline_songs"
+
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    song_id: Mapped[str] = mapped_column(Text, ForeignKey("songs.uuid", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
+
+
 class ErrorLog(Base):
     __tablename__ = "error_logs"
 

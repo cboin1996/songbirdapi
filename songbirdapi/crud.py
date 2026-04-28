@@ -75,10 +75,11 @@ def _owner_filter(user_id: str | None):
     return Song.owner_id.is_(None)
 
 
-async def search_songs(db: AsyncSession, query: str, user_id: str | None = None) -> list[Song]:
+async def search_songs(db: AsyncSession, query: str, user_id: str | None = None, limit: int = 50) -> list[Song]:
     result = await db.execute(
         select(Song).where(
             _owner_filter(user_id),
+            Song.parent_song_id.is_(None),
             func.to_tsvector(
                 "english",
                 func.coalesce(Song.properties["trackName"].as_string(), "")
@@ -87,7 +88,7 @@ async def search_songs(db: AsyncSession, query: str, user_id: str | None = None)
                 + " "
                 + func.coalesce(Song.properties["collectionName"].as_string(), ""),
             ).op("@@")(func.plainto_tsquery("english", query))
-        )
+        ).limit(limit)
     )
     return list(result.scalars().all())
 

@@ -92,6 +92,7 @@ async def _run_edit_job(job_id: str, source_song_id: str, user_id: str, params: 
                     artwork_full=source.artwork_full,
                     parent_song_id=source_song_id,
                     root_song_id=root_id,
+                    owner_id=user_id,
                 )
                 db.add(new_song)
                 await db.commit()

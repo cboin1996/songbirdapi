@@ -582,6 +582,11 @@ async def upsert_player_state(
     queue: list[str],
     queue_index: int,
     shuffle_order: list[int] | None = None,
+    play_context: str | None = None,
+    shuffle_seed: int | None = None,
+    shuffle_position: int = 0,
+    manual_next: list[str] | None = None,
+    current_song_uuid: str | None = None,
 ) -> UserPlayerState:
     state = await get_player_state(db, user_id)
     if state is None:
@@ -592,6 +597,11 @@ async def upsert_player_state(
     state.queue = queue
     state.queue_index = queue_index
     state.shuffle_order = shuffle_order
+    state.play_context = play_context
+    state.shuffle_seed = shuffle_seed
+    state.shuffle_position = shuffle_position
+    state.manual_next = manual_next or []
+    state.current_song_uuid = current_song_uuid
     state.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(state)

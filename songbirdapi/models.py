@@ -96,6 +96,11 @@ class UserPlayerState(Base):
     queue: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     queue_index: Mapped[int] = mapped_column(Integer, nullable=False, server_default="-1")
     shuffle_order: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    play_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    shuffle_seed: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    shuffle_position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    manual_next: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    current_song_uuid: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
 
 

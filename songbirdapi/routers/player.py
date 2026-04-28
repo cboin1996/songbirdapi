@@ -1,7 +1,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import crud
@@ -15,9 +15,14 @@ router = APIRouter(prefix="/player", tags=["player"])
 class PlayerState(BaseModel):
     shuffle: bool
     repeat: Literal['off', 'one', 'all']
-    queue: list[str]
+    queue: list[str] = Field(default_factory=list, max_length=2000)
     queue_index: int
     shuffle_order: list[int] | None = None
+    play_context: str | None = None
+    shuffle_seed: int | None = None
+    shuffle_position: int = 0
+    manual_next: list[str] = Field(default_factory=list)
+    current_song_uuid: str | None = None
 
 
 def _serialize(state) -> PlayerState:
@@ -27,6 +32,11 @@ def _serialize(state) -> PlayerState:
         queue=state.queue,
         queue_index=state.queue_index,
         shuffle_order=state.shuffle_order,
+        play_context=state.play_context,
+        shuffle_seed=state.shuffle_seed,
+        shuffle_position=state.shuffle_position or 0,
+        manual_next=state.manual_next or [],
+        current_song_uuid=state.current_song_uuid,
     )
 
 
@@ -54,5 +64,10 @@ async def update_state(
         body.queue,
         body.queue_index,
         body.shuffle_order,
+        body.play_context,
+        body.shuffle_seed,
+        body.shuffle_position,
+        body.manual_next,
+        body.current_song_uuid,
     )
     return _serialize(state)

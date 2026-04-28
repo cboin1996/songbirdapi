@@ -27,6 +27,15 @@ class BulkRemoveRequest(BaseModel):
     song_ids: list[str]
 
 
+class PublishRequest(BaseModel):
+    song_ids: list[str]
+
+
+class EligibleSong(BaseModel):
+    uuid: str
+    properties: dict | None
+
+
 @router.get("", response_model=list[LibraryEntry])
 async def get_library(
     current_user: User = Depends(get_current_user),
@@ -44,20 +53,28 @@ async def get_library(
     ]
 
 
+@router.get("/eligible", response_model=list[EligibleSong])
+async def get_eligible_songs(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(select(Song.uuid, Song.properties).where(Song.owner_id == current_user.id))
+    return [EligibleSong(uuid=uuid, properties=props) for uuid, props in result.all() if _is_publish_eligible(props)]
+
+
 @router.post("/publish")
-async def publish_eligible_songs(
+async def publish_songs(
+    body: PublishRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    result = await db.execute(select(Song.uuid, Song.properties).where(Song.owner_id == current_user.id))
-    rows = result.all()
-    eligible_ids = [uuid for uuid, props in rows if _is_publish_eligible(props)]
-    if eligible_ids:
-        await db.execute(
-            update(Song).where(Song.uuid.in_(eligible_ids)).values(owner_id=None, source="community")
-        )
+    # Only publish songs owned by the current user
+    result = await db.execute(select(Song.uuid).where(Song.owner_id == current_user.id, Song.uuid.in_(body.song_ids)))
+    ids = [row[0] for row in result.all()]
+    if ids:
+        await db.execute(update(Song).where(Song.uuid.in_(ids)).values(owner_id=None, source="community"))
         await db.commit()
-    return {"published": len(eligible_ids)}
+    return {"published": len(ids)}
 
 
 @router.post("/{song_id}", status_code=status.HTTP_201_CREATED, response_model=LibraryEntry)

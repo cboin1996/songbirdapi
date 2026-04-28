@@ -709,6 +709,16 @@ async def remove_song_from_playlist(db: AsyncSession, playlist_id: str, song_uui
     return True
 
 
+async def bulk_remove_songs_from_playlist(db: AsyncSession, playlist_id: str, song_uuids: list[str]) -> None:
+    await db.execute(
+        delete(PlaylistSong).where(
+            PlaylistSong.playlist_id == playlist_id,
+            PlaylistSong.song_uuid.in_(song_uuids),
+        )
+    )
+    await db.commit()
+
+
 async def reorder_playlist(db: AsyncSession, playlist_id: str, song_uuids: list[str]) -> bool:
     """Replace the playlist order with the given ordered list of song UUIDs."""
     result = await db.execute(

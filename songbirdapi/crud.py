@@ -293,10 +293,12 @@ async def get_popular_downloads(db: AsyncSession, window: str, limit: int = 10, 
     return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
 
 
-async def get_recently_added(db: AsyncSession, limit: int = 10, user_id: str | None = None) -> list[Song]:
-    result = await db.execute(
-        select(Song).where(Song.properties.isnot(None), _owner_filter(user_id)).order_by(Song.created_at.desc()).limit(limit)
-    )
+async def get_recently_added(db: AsyncSession, limit: int = 50, user_id: str | None = None, window: str = "all") -> list[Song]:
+    cutoff = _window_cutoff(window)
+    q = select(Song).where(Song.properties.isnot(None), _owner_filter(user_id)).order_by(Song.created_at.desc()).limit(limit)
+    if cutoff:
+        q = q.where(Song.created_at >= cutoff)
+    result = await db.execute(q)
     return list(result.scalars().all())
 
 
@@ -332,14 +334,18 @@ async def get_user_most_played(db: AsyncSession, user_id: str, window: str = "al
     return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
 
 
-async def get_user_recently_played(db: AsyncSession, user_id: str, limit: int = 10) -> list[dict]:
-    result = await db.execute(
+async def get_user_recently_played(db: AsyncSession, user_id: str, limit: int = 50, window: str = "all") -> list[dict]:
+    cutoff = _window_cutoff(window)
+    q = (
         select(Song, UserSong.last_played_at)
         .join(UserSong, Song.uuid == UserSong.song_id)
         .where(UserSong.user_id == user_id, UserSong.last_played_at.isnot(None))
         .order_by(UserSong.last_played_at.desc())
         .limit(limit)
     )
+    if cutoff:
+        q = q.where(UserSong.last_played_at >= cutoff)
+    result = await db.execute(q)
     return [
         {"uuid": s.uuid, "properties": s.properties, "last_played_at": lp.isoformat()}
         for s, lp in result.all()

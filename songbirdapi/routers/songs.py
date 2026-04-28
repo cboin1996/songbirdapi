@@ -69,17 +69,23 @@ class RecentlySavedSong(BaseModel):
     added_at: str
 
 
+class RecentlyAddedSong(BaseModel):
+    uuid: str
+    url: str
+    properties: dict | None
+    added_at: str
+    source: str | None = None
+
+
 class ExploreResponse(BaseModel):
     most_played: list[SongWithCount]
     most_downloaded: list[SongWithCount]
     most_libraryed: list[SongWithCount]
-    recently_added: list[SongResponse]
+    recently_added: list[RecentlyAddedSong]
     your_most_played: list[SongWithCount]
     your_most_downloaded: list[SongWithCount]
     your_recently_saved: list[RecentlySavedSong]
     your_recently_played: list[RecentlyPlayedSong]
-    community_recent: list[SongResponse]
-    community_popular: list[SongWithCount]
 
 
 @router.get("/", response_model=list[SongResponse])
@@ -107,13 +113,15 @@ async def explore(
     most_played = await crud.get_popular_songs(db, window, user_id=current_user.id)
     most_downloaded = await crud.get_popular_downloads(db, window, user_id=current_user.id)
     most_libraryed = await crud.get_most_libraryed(db, window, user_id=current_user.id)
-    recently_added = await crud.get_recently_added(db, user_id=current_user.id)
+    recently_added_songs = await crud.get_recently_added(db, user_id=current_user.id, window=window)
     your_most_played = await crud.get_user_most_played(db, current_user.id, window)
     your_most_downloaded = await crud.get_user_most_downloaded(db, current_user.id, window)
     your_recently_saved = await crud.get_user_recently_saved(db, current_user.id, window)
-    your_recently_played = await crud.get_user_recently_played(db, current_user.id)
-    community_recent = await crud.get_community_recent(db)
-    community_popular = await crud.get_community_popular(db, window)
+    your_recently_played = await crud.get_user_recently_played(db, current_user.id, window=window)
+    recently_added = [
+        RecentlyAddedSong(uuid=s.uuid, url=s.url, properties=s.properties, added_at=s.created_at.isoformat(), source=s.source)
+        for s in recently_added_songs
+    ]
     return ExploreResponse(
         most_played=most_played,
         most_downloaded=most_downloaded,
@@ -123,8 +131,6 @@ async def explore(
         your_most_downloaded=your_most_downloaded,
         your_recently_saved=your_recently_saved,
         your_recently_played=your_recently_played,
-        community_recent=community_recent,
-        community_popular=community_popular,
     )
 
 

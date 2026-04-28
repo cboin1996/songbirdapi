@@ -87,7 +87,7 @@ async def get_properties(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await crud.search_songs(db, filter_query.query, user_id=current_user.id)
+    return await crud.search_songs(db, filter_query.query, user_id=None)
 
 
 @router.get("/{id}")

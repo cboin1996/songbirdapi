@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,7 +7,7 @@ from .. import crud
 from ..crud import _is_publish_eligible
 from ..database import get_db
 from ..dependencies import get_current_user
-from ..models import Song, User
+from ..models import Song, User, UserSong
 
 router = APIRouter(prefix="/library", tags=["library"])
 
@@ -31,9 +31,21 @@ class PublishRequest(BaseModel):
     song_ids: list[str]
 
 
+REQUIRED_FIELDS = ["trackName", "artistName", "collectionName", "artworkUrl100", "primaryGenreName"]
+FIELD_LABELS = {
+    "trackName": "track name",
+    "artistName": "artist",
+    "collectionName": "album",
+    "artworkUrl100": "artwork",
+    "primaryGenreName": "genre",
+}
+
+
 class EligibleSong(BaseModel):
     uuid: str
     properties: dict | None
+    eligible: bool
+    missing_fields: list[str]
 
 
 @router.get("", response_model=list[LibraryEntry])
@@ -58,8 +70,19 @@ async def get_eligible_songs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Song.uuid, Song.properties).where(Song.owner_id == current_user.id))
-    return [EligibleSong(uuid=uuid, properties=props) for uuid, props in result.all() if _is_publish_eligible(props)]
+    result = await db.execute(
+        select(Song.uuid, Song.properties)
+        .join(UserSong, Song.uuid == UserSong.song_id)
+        .where(
+            UserSong.user_id == current_user.id,
+            Song.owner_id == current_user.id,
+        )
+    )
+    songs = []
+    for uuid, props in result.all():
+        missing = [FIELD_LABELS[f] for f in REQUIRED_FIELDS if not (props or {}).get(f)]
+        songs.append(EligibleSong(uuid=uuid, properties=props, eligible=len(missing) == 0, missing_fields=missing))
+    return songs
 
 
 @router.post("/publish")
@@ -72,7 +95,7 @@ async def publish_songs(
     result = await db.execute(select(Song.uuid).where(Song.owner_id == current_user.id, Song.uuid.in_(body.song_ids)))
     ids = [row[0] for row in result.all()]
     if ids:
-        await db.execute(update(Song).where(Song.uuid.in_(ids)).values(owner_id=None, source="community"))
+        await db.execute(update(Song).where(Song.uuid.in_(ids)).values(owner_id=None, source="community", parent_song_id=None, root_song_id=None))
         await db.commit()
     return {"published": len(ids)}
 
@@ -126,7 +149,7 @@ async def update_position(
 ):
     entry = await crud.update_position(db, current_user.id, song_id, body.position)
     if not entry:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not in library")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
     return LibraryEntry(
         song_id=entry.song_id,
         added_at=entry.added_at.isoformat(),

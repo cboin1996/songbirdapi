@@ -41,11 +41,12 @@ async def _run_import(job_id: str, dest_path: str, ext: str, user_id: str) -> No
             await crud.update_import_job(db, job_id, EditJobStatus.processing)
             try:
                 props = None
+                artwork_bytes = None
                 try:
                     if ext == ".mp3":
-                        model = itunes.mp3_tag_reader(dest_path)
+                        model, artwork_bytes = itunes.mp3_tag_reader(dest_path)
                     else:
-                        model = itunes.m4a_tag_reader(dest_path)
+                        model, artwork_bytes = itunes.m4a_tag_reader(dest_path)
                     if model:
                         props = model.model_dump()
                 except Exception:
@@ -76,6 +77,14 @@ async def _run_import(job_id: str, dest_path: str, ext: str, user_id: str) -> No
                 db.add(song)
                 await db.commit()
                 await crud.add_to_library(db, user_id, song_uuid)
+                if artwork_bytes:
+                    from ..artwork import store_artwork_from_bytes
+                    try:
+                        thumb, full = await store_artwork_from_bytes(song_uuid, artwork_bytes, _config.artwork_dir)
+                        if thumb or full:
+                            await crud.update_song_artwork(db, song_uuid, thumb, full)
+                    except Exception:
+                        pass
                 await crud.update_import_job(db, job_id, EditJobStatus.done, song_id=song_uuid)
             except Exception as exc:
                 if os.path.exists(dest_path):

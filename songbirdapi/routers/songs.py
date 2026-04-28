@@ -143,13 +143,18 @@ async def get_artwork(
     size: Literal["thumb", "full"] = "full",
     db: AsyncSession = Depends(get_db),
 ):
+    from fastapi.responses import RedirectResponse
     song = await crud.get_song(db, id)
     if not song:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
-    path = song.artwork_thumb if size == "thumb" else song.artwork_full
-    if not path or not os.path.exists(path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artwork not cached")
-    return FileResponse(path, media_type="image/jpeg")
+    path = song.artwork_thumb if size == "thumb" else (song.artwork_full or song.artwork_thumb)
+    if path and os.path.exists(path):
+        return FileResponse(path, media_type="image/jpeg")
+    itunes_url = (song.properties or {}).get("artworkUrl100", "")
+    if itunes_url:
+        target_size = "200x200bb" if size == "thumb" else "600x600bb"
+        return RedirectResponse(url=itunes_url.replace("100x100bb", target_size), status_code=302)
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artwork not cached")
 
 
 @router.post("/{id}/artwork", status_code=200)

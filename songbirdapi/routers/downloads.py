@@ -12,7 +12,7 @@ from fastapi.logger import logger
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from songbirdcore import youtube
+from songbirdcore import itunes, youtube
 from songbirdcore.models.itunes_api import ItunesApiSongModel
 
 from songbirdapi import crud
@@ -31,6 +31,8 @@ router = APIRouter(
 config = load_settings()
 
 
+
+
 class FileFormats(enum.StrEnum):
     mp3 = "mp3"
     m4a = "m4a"
@@ -47,6 +49,8 @@ class DownloadBody(BaseModel):
 class DownloadResponse(BaseModel):
     song_ids: Set[str]
     cached: bool = False
+    properties: dict | None = None
+    artwork_cached: bool = False
 
 
 class DownloadCachedSong(BaseModel):
@@ -68,7 +72,7 @@ async def download(
         logger.info(f"returning cached values {[s.uuid for s in existing]}")
         for s in existing:
             await crud.record_download(db, s.uuid, current_user.id)
-        return DownloadResponse(song_ids={s.uuid for s in existing}, cached=True)
+        return DownloadResponse(song_ids={s.uuid for s in existing}, cached=True, properties=existing[0].properties, artwork_cached=existing[0].artwork_thumb is not None)
 
     song_id = str(uuid.uuid4())
     file_path = os.path.join(config.downloads_dir, song_id)
@@ -98,8 +102,37 @@ async def download(
     song = Song(uuid=song_id, url=url, file_path=file_path)
     await crud.insert_song(db, song)
     await crud.record_download(db, song_id, current_user.id)
+
+    props = None
+    artwork_bytes = None
+    try:
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == ".mp3":
+            model, artwork_bytes = itunes.mp3_tag_reader(file_path)
+        elif ext == ".m4a":
+            model, artwork_bytes = itunes.m4a_tag_reader(file_path)
+        else:
+            model = None
+        if model:
+            props = model.model_dump()
+            props["collectionId"] = str(props["collectionId"])
+            await crud.update_song_properties(db, song_id, props)
+    except Exception:
+        pass
+
+    artwork_cached = False
+    if artwork_bytes:
+        from ..artwork import store_artwork_from_bytes
+        try:
+            thumb, full = await store_artwork_from_bytes(song_id, artwork_bytes, config.artwork_dir)
+            if thumb or full:
+                await crud.update_song_artwork(db, song_id, thumb, full)
+                artwork_cached = True
+        except Exception:
+            pass
+
     logger.info(f"returning downloaded song {song_id}")
-    return DownloadResponse(song_ids={song_id})
+    return DownloadResponse(song_ids={song_id}, properties=props, artwork_cached=artwork_cached)
 
 
 @router.get("/{id}")

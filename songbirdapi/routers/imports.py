@@ -65,7 +65,8 @@ async def _run_import(job_id: str, dest_path: str, ext: str, user_id: str) -> No
                             return
 
                 song_uuid = os.path.splitext(os.path.basename(dest_path))[0]
-                auto_publish = _is_publish_eligible(props)
+                _REQUIRED_NO_ART = ["trackName", "artistName", "collectionName", "primaryGenreName"]
+                auto_publish = bool(props) and all(bool((props or {}).get(f)) for f in _REQUIRED_NO_ART) and (bool((props or {}).get("artworkUrl100")) or bool(artwork_bytes))
                 song = Song(
                     uuid=song_uuid,
                     url="",

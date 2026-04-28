@@ -46,6 +46,7 @@ class EligibleSong(BaseModel):
     properties: dict | None
     eligible: bool
     missing_fields: list[str]
+    artwork_cached: bool = False
 
 
 @router.get("", response_model=list[LibraryEntry])
@@ -71,7 +72,7 @@ async def get_eligible_songs(
     current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(Song.uuid, Song.properties)
+        select(Song.uuid, Song.properties, Song.artwork_thumb)
         .join(UserSong, Song.uuid == UserSong.song_id)
         .where(
             UserSong.user_id == current_user.id,
@@ -79,9 +80,16 @@ async def get_eligible_songs(
         )
     )
     songs = []
-    for uuid, props in result.all():
-        missing = [FIELD_LABELS[f] for f in REQUIRED_FIELDS if not (props or {}).get(f)]
-        songs.append(EligibleSong(uuid=uuid, properties=props, eligible=len(missing) == 0, missing_fields=missing))
+    for uuid, props, artwork_thumb in result.all():
+        p = props or {}
+        missing = []
+        for f in REQUIRED_FIELDS:
+            if f == "artworkUrl100":
+                if not p.get(f) and artwork_thumb is None:
+                    missing.append(FIELD_LABELS[f])
+            elif not p.get(f):
+                missing.append(FIELD_LABELS[f])
+        songs.append(EligibleSong(uuid=uuid, properties=props, eligible=len(missing) == 0, missing_fields=missing, artwork_cached=artwork_thumb is not None))
     return songs
 
 

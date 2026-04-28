@@ -35,6 +35,7 @@ class SongResponse(BaseModel):
     file_path: str
     properties: Optional[ItunesApiSongModel]
     owner_id: Optional[str] = None
+    source: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

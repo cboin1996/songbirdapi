@@ -46,6 +46,7 @@ class DownloadBody(BaseModel):
 
 class DownloadResponse(BaseModel):
     song_ids: Set[str]
+    cached: bool = False
 
 
 class DownloadCachedSong(BaseModel):
@@ -55,7 +56,7 @@ class DownloadCachedSong(BaseModel):
     uuid: str
 
 
-@router.post("/")
+@router.post("")
 async def download(
     body: DownloadBody,
     db: AsyncSession = Depends(get_db),
@@ -67,7 +68,7 @@ async def download(
         logger.info(f"returning cached values {[s.uuid for s in existing]}")
         for s in existing:
             await crud.record_download(db, s.uuid, current_user.id)
-        return DownloadResponse(song_ids={s.uuid for s in existing})
+        return DownloadResponse(song_ids={s.uuid for s in existing}, cached=True)
 
     song_id = str(uuid.uuid4())
     file_path = os.path.join(config.downloads_dir, song_id)

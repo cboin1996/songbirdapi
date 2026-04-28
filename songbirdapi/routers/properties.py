@@ -34,6 +34,7 @@ class SongResponse(BaseModel):
     url: str
     file_path: str
     properties: Optional[ItunesApiSongModel]
+    owner_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -80,7 +81,7 @@ class FilterParams(BaseModel):
     query: str
 
 
-@router.get("/", response_model=List[SongResponse])
+@router.get("", response_model=List[SongResponse])
 async def get_properties(
     filter_query: Annotated[FilterParams, Query()],
     db: AsyncSession = Depends(get_db),
@@ -120,7 +121,7 @@ async def _cache_artwork(song_id: str, itunes_url: str) -> None:
             await crud.update_song_artwork(db, song_id, thumb, full)
 
 
-@router.put("/")
+@router.put("")
 async def put_properties(
     body: TagBody,
     background_tasks: BackgroundTasks,

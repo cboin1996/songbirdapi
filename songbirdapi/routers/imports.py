@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from songbirdcore import itunes
 
 from .. import crud, database
+from ..crud import _is_publish_eligible
 from ..dependencies import get_current_user, get_db, load_settings
 from ..models import EditJobStatus, ImportJob, Song, User
 
@@ -63,7 +64,15 @@ async def _run_import(job_id: str, dest_path: str, ext: str, user_id: str) -> No
                             return
 
                 song_uuid = os.path.splitext(os.path.basename(dest_path))[0]
-                song = Song(uuid=song_uuid, url="", file_path=dest_path, properties=props, owner_id=user_id)
+                auto_publish = _is_publish_eligible(props)
+                song = Song(
+                    uuid=song_uuid,
+                    url="",
+                    file_path=dest_path,
+                    properties=props,
+                    owner_id=None if auto_publish else user_id,
+                    source="community" if auto_publish else None,
+                )
                 db.add(song)
                 await db.commit()
                 await crud.add_to_library(db, user_id, song_uuid)

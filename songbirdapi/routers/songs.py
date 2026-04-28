@@ -137,7 +137,7 @@ async def record_play(
     await crud.record_play(db, id, current_user.id)
 
 
-@router.get("/{id}/artwork")
+@router.get("/{id}/artwork/{size}")
 async def get_artwork(
     id: str,
     size: Literal["thumb", "full"] = "full",

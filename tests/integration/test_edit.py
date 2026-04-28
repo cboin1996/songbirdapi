@@ -7,8 +7,9 @@ _EDIT_PARAMS = {
     "trim_start": 0,
     "trim_end": None,
     "volume": 1.0,
-    "fade_in": 0.0,
-    "fade_out": 0.0,
+    "fades": [],
+    "speed": 1.0,
+    "normalize": False,
     "cuts": [],
 }
 

@@ -118,3 +118,77 @@ async def test_publish_returns_count(test_client: AsyncClient, regular_user):
     body = resp.json()
     assert "published" in body
     assert isinstance(body["published"], int)
+
+
+# ---------------------------------------------------------------------------
+# DELETE /library/bulk
+# ---------------------------------------------------------------------------
+
+async def test_bulk_remove_from_library(test_client: AsyncClient, regular_user, sample_song):
+    import uuid as _uuid
+    cookies = await login(test_client, regular_user)
+    # create a second song in-band via the song fixture pattern isn't available, so insert via library add
+    from songbirdapi import crud as _crud
+    from songbirdapi.models import Song as _Song
+    from tests.integration.conftest import _TestingSession
+    second_uuid = str(_uuid.uuid4())
+    async with _TestingSession() as db:
+        song2 = _Song(uuid=second_uuid, url="https://example.com/bulk-song2", file_path="/tmp/bulk-song2.mp3")
+        await _crud.insert_song(db, song2)
+    # add both to library
+    await test_client.post(f"/v1/library/{sample_song.uuid}", cookies=cookies)
+    await test_client.post(f"/v1/library/{second_uuid}", cookies=cookies)
+    # bulk remove both
+    resp = await test_client.request(
+        "DELETE", "/v1/library/bulk",
+        json={"song_ids": [sample_song.uuid, second_uuid]},
+        cookies=cookies,
+    )
+    assert resp.status_code == 204
+    lib = await test_client.get("/v1/library", cookies=cookies)
+    uuids = [e["song_id"] for e in lib.json()]
+    assert sample_song.uuid not in uuids
+    assert second_uuid not in uuids
+    # cleanup
+    async with _TestingSession() as db:
+        await _crud.delete_song(db, second_uuid)
+
+
+async def test_bulk_remove_partial(test_client: AsyncClient, regular_user, sample_song):
+    import uuid as _uuid
+    cookies = await login(test_client, regular_user)
+    from songbirdapi import crud as _crud
+    from songbirdapi.models import Song as _Song
+    from tests.integration.conftest import _TestingSession
+    third_uuid = str(_uuid.uuid4())
+    async with _TestingSession() as db:
+        song3 = _Song(uuid=third_uuid, url="https://example.com/bulk-song3", file_path="/tmp/bulk-song3.mp3")
+        await _crud.insert_song(db, song3)
+    await test_client.post(f"/v1/library/{sample_song.uuid}", cookies=cookies)
+    await test_client.post(f"/v1/library/{third_uuid}", cookies=cookies)
+    # bulk remove only third
+    resp = await test_client.request(
+        "DELETE", "/v1/library/bulk",
+        json={"song_ids": [third_uuid]},
+        cookies=cookies,
+    )
+    assert resp.status_code == 204
+    lib = await test_client.get("/v1/library", cookies=cookies)
+    uuids = [e["song_id"] for e in lib.json()]
+    assert third_uuid not in uuids
+    assert sample_song.uuid in uuids
+    # cleanup
+    await test_client.request("DELETE", "/v1/library/bulk", json={"song_ids": [sample_song.uuid]}, cookies=cookies)
+    async with _TestingSession() as db:
+        await _crud.delete_song(db, third_uuid)
+
+
+async def test_bulk_remove_empty_list_returns_400(test_client: AsyncClient, regular_user):
+    cookies = await login(test_client, regular_user)
+    resp = await test_client.request("DELETE", "/v1/library/bulk", json={"song_ids": []}, cookies=cookies)
+    assert resp.status_code == 400
+
+
+async def test_bulk_remove_requires_auth(test_client: AsyncClient, sample_song):
+    resp = await test_client.request("DELETE", "/v1/library/bulk", json={"song_ids": [sample_song.uuid]})
+    assert resp.status_code == 401

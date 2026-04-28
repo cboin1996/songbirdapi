@@ -72,9 +72,9 @@ def _build_volume_and_fades_filter(
                 f"if(lt(t,{bs:.6f}),1,if(lt(t,{be:.6f}),(t-{bs:.6f})/{dur:.6f},1))"
             )
         else:
-            # 1 before bs, ramp 1→0 from bs to be, 0 after be
+            # 1 before bs, ramp 1→0 from bs to be, 1 after be
             fade_factors.append(
-                f"if(lt(t,{bs:.6f}),1,if(lt(t,{be:.6f}),({be:.6f}-t)/{dur:.6f},0))"
+                f"if(lt(t,{bs:.6f}),1,if(lt(t,{be:.6f}),({be:.6f}-t)/{dur:.6f},1))"
             )
 
     if not fade_factors and abs(volume - 1.0) < 1e-6:
@@ -190,9 +190,9 @@ async def _apply_with_cuts(
         seg_dur = e - s
         per_seg: list[str] = []
         if fi > 0:
-            per_seg.append(f"afade=t=in:st=0:d={fi}")
+            per_seg.append(f"afade=t=in:st={s:.4f}:d={fi}")
         if fo > 0:
-            per_seg.append(f"afade=t=out:st={max(0.0, seg_dur - fo):.4f}:d={fo}")
+            per_seg.append(f"afade=t=out:st={s + max(0.0, seg_dur - fo):.4f}:d={fo}")
         fades_str = "," + ",".join(per_seg) if per_seg else ""
         parts.append(f"[0:a]atrim=start={s}:end={e}{fades_str},asetpts=PTS-STARTPTS[s{i}]")
 

@@ -203,6 +203,13 @@ async def remove_from_library(db: AsyncSession, user_id: str, song_id: str) -> b
     return result.rowcount > 0
 
 
+async def bulk_remove_from_library(db: AsyncSession, user_id: str, song_ids: list[str]) -> None:
+    await db.execute(
+        delete(UserSong).where(UserSong.user_id == user_id, UserSong.song_id.in_(song_ids))
+    )
+    await db.commit()
+
+
 async def library_ref_count(db: AsyncSession, song_id: str) -> int:
     result = await db.execute(select(func.count()).where(UserSong.song_id == song_id))
     return result.scalar_one()
@@ -637,6 +644,24 @@ async def get_playlist_songs(db: AsyncSession, playlist_id: str) -> list[Song]:
         .order_by(PlaylistSong.position.asc())
     )
     return list(result.scalars().all())
+
+
+async def bulk_add_songs_to_playlist(db: AsyncSession, playlist_id: str, song_uuids: list[str]) -> None:
+    result = await db.execute(
+        select(func.max(PlaylistSong.position)).where(PlaylistSong.playlist_id == playlist_id)
+    )
+    max_pos = result.scalar_one_or_none() or -1
+    existing_result = await db.execute(
+        select(PlaylistSong.song_uuid).where(PlaylistSong.playlist_id == playlist_id)
+    )
+    existing = {row[0] for row in existing_result.all()}
+    position = max_pos + 1
+    for song_uuid in song_uuids:
+        if song_uuid not in existing:
+            db.add(PlaylistSong(playlist_id=playlist_id, song_uuid=song_uuid, position=position))
+            existing.add(song_uuid)
+            position += 1
+    await db.commit()
 
 
 async def add_song_to_playlist(db: AsyncSession, playlist_id: str, song_uuid: str) -> bool:

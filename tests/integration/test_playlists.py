@@ -175,3 +175,103 @@ async def test_reorder_playlist(test_client: AsyncClient, regular_user, sample_s
     assert songs.json()[0]["uuid"] == sample_song.uuid
     # cleanup
     await test_client.delete(f"/v1/playlists/{pl_id}", cookies=cookies)
+
+
+# ---------------------------------------------------------------------------
+# POST /playlists/{playlist_id}/songs/bulk
+# ---------------------------------------------------------------------------
+
+async def test_bulk_add_songs_to_playlist(test_client: AsyncClient, regular_user, sample_song):
+    import uuid as _uuid
+    cookies = await login(test_client, regular_user)
+    from songbirdapi import crud as _crud
+    from songbirdapi.models import Song as _Song
+    from tests.integration.conftest import _TestingSession
+    second_uuid = str(_uuid.uuid4())
+    async with _TestingSession() as db:
+        song2 = _Song(uuid=second_uuid, url="https://example.com/bulk-pl-song2", file_path="/tmp/bulk-pl-song2.mp3")
+        await _crud.insert_song(db, song2)
+    create = await test_client.post("/v1/playlists", json={"name": "bulk add"}, cookies=cookies)
+    pl_id = create.json()["id"]
+    # add both songs to library first
+    await test_client.post(f"/v1/library/{sample_song.uuid}", cookies=cookies)
+    await test_client.post(f"/v1/library/{second_uuid}", cookies=cookies)
+    resp = await test_client.post(
+        f"/v1/playlists/{pl_id}/songs/bulk",
+        json={"song_uuids": [sample_song.uuid, second_uuid]},
+        cookies=cookies,
+    )
+    assert resp.status_code == 204
+    songs = await test_client.get(f"/v1/playlists/{pl_id}/songs", cookies=cookies)
+    uuids = [s["uuid"] for s in songs.json()]
+    assert sample_song.uuid in uuids
+    assert second_uuid in uuids
+    # cleanup
+    await test_client.delete(f"/v1/playlists/{pl_id}", cookies=cookies)
+    async with _TestingSession() as db:
+        await _crud.delete_song(db, second_uuid)
+
+
+async def test_bulk_add_skips_duplicates(test_client: AsyncClient, regular_user, sample_song):
+    cookies = await login(test_client, regular_user)
+    await test_client.post(f"/v1/library/{sample_song.uuid}", cookies=cookies)
+    create = await test_client.post("/v1/playlists", json={"name": "bulk dedup"}, cookies=cookies)
+    pl_id = create.json()["id"]
+    # add same song twice in one bulk call
+    resp = await test_client.post(
+        f"/v1/playlists/{pl_id}/songs/bulk",
+        json={"song_uuids": [sample_song.uuid, sample_song.uuid]},
+        cookies=cookies,
+    )
+    assert resp.status_code == 204
+    songs = await test_client.get(f"/v1/playlists/{pl_id}/songs", cookies=cookies)
+    uuids = [s["uuid"] for s in songs.json()]
+    assert uuids.count(sample_song.uuid) == 1
+    # add same song again via a second bulk call — should still be once
+    resp2 = await test_client.post(
+        f"/v1/playlists/{pl_id}/songs/bulk",
+        json={"song_uuids": [sample_song.uuid]},
+        cookies=cookies,
+    )
+    assert resp2.status_code == 204
+    songs2 = await test_client.get(f"/v1/playlists/{pl_id}/songs", cookies=cookies)
+    assert [s["uuid"] for s in songs2.json()].count(sample_song.uuid) == 1
+    # cleanup
+    await test_client.delete(f"/v1/playlists/{pl_id}", cookies=cookies)
+
+
+async def test_bulk_add_empty_list_returns_400(test_client: AsyncClient, regular_user):
+    cookies = await login(test_client, regular_user)
+    create = await test_client.post("/v1/playlists", json={"name": "bulk empty"}, cookies=cookies)
+    pl_id = create.json()["id"]
+    resp = await test_client.post(
+        f"/v1/playlists/{pl_id}/songs/bulk",
+        json={"song_uuids": []},
+        cookies=cookies,
+    )
+    assert resp.status_code == 400
+    # cleanup
+    await test_client.delete(f"/v1/playlists/{pl_id}", cookies=cookies)
+
+
+async def test_bulk_add_requires_auth(test_client: AsyncClient, sample_song):
+    resp = await test_client.post(
+        "/v1/playlists/fake-playlist-id/songs/bulk",
+        json={"song_uuids": [sample_song.uuid]},
+    )
+    assert resp.status_code == 401
+
+
+async def test_bulk_add_wrong_user_returns_403(test_client: AsyncClient, regular_user, admin_user, sample_song):
+    reg_cookies = await login(test_client, regular_user)
+    adm_cookies = await login(test_client, admin_user)
+    create = await test_client.post("/v1/playlists", json={"name": "owner only"}, cookies=reg_cookies)
+    pl_id = create.json()["id"]
+    resp = await test_client.post(
+        f"/v1/playlists/{pl_id}/songs/bulk",
+        json={"song_uuids": [sample_song.uuid]},
+        cookies=adm_cookies,
+    )
+    assert resp.status_code == 403
+    # cleanup
+    await test_client.delete(f"/v1/playlists/{pl_id}", cookies=reg_cookies)

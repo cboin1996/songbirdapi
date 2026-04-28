@@ -23,6 +23,10 @@ class PositionUpdate(BaseModel):
     position: float
 
 
+class BulkRemoveRequest(BaseModel):
+    song_ids: list[str]
+
+
 @router.get("", response_model=list[LibraryEntry])
 async def get_library(
     current_user: User = Depends(get_current_user),
@@ -72,6 +76,17 @@ async def add_to_library(
         last_position=entry.last_position,
         last_played_at=entry.last_played_at.isoformat() if entry.last_played_at else None,
     )
+
+
+@router.delete("/bulk", status_code=status.HTTP_204_NO_CONTENT)
+async def bulk_remove_from_library(
+    body: BulkRemoveRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not body.song_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="song_ids must not be empty")
+    await crud.bulk_remove_from_library(db, current_user.id, body.song_ids)
 
 
 @router.delete("/{song_id}", status_code=status.HTTP_204_NO_CONTENT)

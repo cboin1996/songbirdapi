@@ -34,6 +34,10 @@ class ReorderBody(BaseModel):
     song_uuids: list[str]
 
 
+class BulkAddSongsBody(BaseModel):
+    song_uuids: list[str]
+
+
 @router.get("", response_model=list[PlaylistResponse])
 async def list_playlists(
     db: AsyncSession = Depends(get_db),
@@ -126,6 +130,23 @@ async def add_song_to_playlist(
     ok = await crud.add_song_to_playlist(db, playlist_id, body.song_uuid)
     if not ok:
         raise HTTPException(status_code=409, detail="Song already in playlist")
+
+
+@router.post("/{playlist_id}/songs/bulk", status_code=status.HTTP_204_NO_CONTENT)
+async def bulk_add_songs_to_playlist(
+    playlist_id: str,
+    body: BulkAddSongsBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not body.song_uuids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="song_uuids must not be empty")
+    pl = await crud.get_playlist(db, playlist_id)
+    if not pl:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playlist not found")
+    if pl.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    await crud.bulk_add_songs_to_playlist(db, playlist_id, body.song_uuids)
 
 
 @router.delete("/{playlist_id}/songs/{song_uuid}", status_code=status.HTTP_204_NO_CONTENT)

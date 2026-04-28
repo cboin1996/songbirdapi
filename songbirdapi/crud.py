@@ -580,6 +580,7 @@ async def upsert_player_state(
     repeat: RepeatMode,
     queue: list[str],
     queue_index: int,
+    shuffle_order: list[int] | None = None,
 ) -> UserPlayerState:
     state = await get_player_state(db, user_id)
     if state is None:
@@ -589,6 +590,7 @@ async def upsert_player_state(
     state.repeat = repeat
     state.queue = queue
     state.queue_index = queue_index
+    state.shuffle_order = shuffle_order
     state.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(state)

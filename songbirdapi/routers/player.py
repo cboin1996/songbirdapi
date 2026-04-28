@@ -17,6 +17,7 @@ class PlayerState(BaseModel):
     repeat: Literal['off', 'one', 'all']
     queue: list[str]
     queue_index: int
+    shuffle_order: list[int] | None = None
 
 
 def _serialize(state) -> PlayerState:
@@ -25,6 +26,7 @@ def _serialize(state) -> PlayerState:
         repeat=state.repeat.value,
         queue=state.queue,
         queue_index=state.queue_index,
+        shuffle_order=state.shuffle_order,
     )
 
 
@@ -51,5 +53,6 @@ async def update_state(
         RepeatMode(body.repeat),
         body.queue,
         body.queue_index,
+        body.shuffle_order,
     )
     return _serialize(state)

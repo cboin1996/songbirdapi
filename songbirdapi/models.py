@@ -94,6 +94,7 @@ class UserPlayerState(Base):
     repeat: Mapped[RepeatMode] = mapped_column(SAEnum(RepeatMode), nullable=False, server_default=RepeatMode.off.value)
     queue: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     queue_index: Mapped[int] = mapped_column(Integer, nullable=False, server_default="-1")
+    shuffle_order: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
 
 

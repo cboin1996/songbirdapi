@@ -33,6 +33,7 @@ class ImportJobResponse(BaseModel):
 class ImportJobsPage(BaseModel):
     total: int
     jobs: list[ImportJobResponse]
+    status_counts: dict[str, int] = {}
 
 
 async def _run_import(job_id: str, dest_path: str, ext: str, user_id: str, as_original: bool = False) -> None:
@@ -52,17 +53,23 @@ async def _run_import(job_id: str, dest_path: str, ext: str, user_id: str, as_or
                 except Exception:
                     pass
 
+                # reject untitled imports
+                track_name = (props or {}).get("trackName") or ""
+                artist_name = (props or {}).get("artistName") or ""
+                if not track_name.strip():
+                    if os.path.exists(dest_path):
+                        os.remove(dest_path)
+                    await crud.update_import_job(db, job_id, EditJobStatus.failed, error="missing track title")
+                    return
+
                 # duplicate detection
-                if props:
-                    track_name = props.get("trackName")
-                    artist_name = props.get("artistName")
-                    if track_name and artist_name:
-                        existing = await crud.find_song_by_track_artist(db, track_name, artist_name)
-                        if existing:
-                            if os.path.exists(dest_path):
-                                os.remove(dest_path)
-                            await crud.update_import_job(db, job_id, EditJobStatus.duplicate, song_id=existing.uuid, duplicate_of=existing.uuid)
-                            return
+                if track_name and artist_name:
+                    existing = await crud.find_song_by_track_artist(db, track_name, artist_name)
+                    if existing:
+                        if os.path.exists(dest_path):
+                            os.remove(dest_path)
+                        await crud.update_import_job(db, job_id, EditJobStatus.duplicate, song_id=existing.uuid, duplicate_of=existing.uuid)
+                        return
 
                 song_uuid = os.path.splitext(os.path.basename(dest_path))[0]
                 _REQUIRED_NO_ART = ["trackName", "artistName", "collectionName", "primaryGenreName"]
@@ -113,6 +120,10 @@ async def list_imports(
     total = (await db.execute(
         select(func.count()).select_from(ImportJob).where(ImportJob.user_id == current_user.id)
     )).scalar_one()
+    counts_rows = (await db.execute(
+        select(ImportJob.status, func.count()).where(ImportJob.user_id == current_user.id).group_by(ImportJob.status)
+    )).all()
+    status_counts = {row[0].value: row[1] for row in counts_rows}
     jobs = await crud.list_import_jobs(db, current_user.id, limit=limit, offset=offset)
     responses = []
     for job in jobs:
@@ -131,7 +142,7 @@ async def list_imports(
             filename=job.filename,
             created_at=job.created_at.isoformat() if job.created_at else None,
         ))
-    return ImportJobsPage(total=total, jobs=responses)
+    return ImportJobsPage(total=total, jobs=responses, status_counts=status_counts)
 
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)

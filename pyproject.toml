@@ -7,7 +7,7 @@ name = "songbirdapi"
 authors = [
     {name = "Christian Boin"},
 ]
-version = "0.0.6"
+version = "0.0.7"
 description = "Music download api"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -42,6 +42,3 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["songbirdapi*"]
-
-[tool.uv.sources]
-songbirdcore = { path = "../songbirdcore", editable = true }

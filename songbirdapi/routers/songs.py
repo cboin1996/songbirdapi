@@ -138,6 +138,18 @@ async def explore(
     )
 
 
+@router.get("/{id}", response_model=SongResponse)
+async def get_song(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    song = await crud.get_song(db, id)
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="song not found")
+    return song
+
+
 @router.post("/{id}/play", status_code=204)
 async def record_play(
     id: str,

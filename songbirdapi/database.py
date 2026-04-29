@@ -10,7 +10,7 @@ _session_factory = None
 
 def init_engine(dsn: str):
     global _engine, _session_factory
-    _engine = create_async_engine(dsn, echo=False)
+    _engine = create_async_engine(dsn, echo=False, pool_size=20, max_overflow=10, pool_pre_ping=True)
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 
 

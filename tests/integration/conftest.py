@@ -16,6 +16,14 @@ from songbirdapi.settings import SongbirdServerConfig
 if os.getenv("ENV") not in ("dev", "test"):
     pytest.skip("integration tests require ENV=dev or ENV=test", allow_module_level=True)
 
+
+def pytest_collection_modifyitems(config, items):
+    if os.getenv("CI"):
+        skip_local = pytest.mark.skip(reason="marked local — skipped in CI (requires yt-dlp / network)")
+        for item in items:
+            if item.get_closest_marker("local"):
+                item.add_marker(skip_local)
+
 # One engine created at import time (sync, no event loop required).
 # Overriding get_db means both fixtures and app routes share this engine/pool.
 _config = SongbirdServerConfig()  # pyright: ignore

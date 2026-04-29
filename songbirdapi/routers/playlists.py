@@ -132,8 +132,14 @@ async def add_song_to_playlist(
     if not pl or pl.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Playlist not found")
     song = await crud.get_song(db, body.song_uuid)
-    if not song or (song.owner_id is not None and song.owner_id != current_user.id):
+    if not song:
         raise HTTPException(status_code=404, detail="Song not found")
+    # Allow community songs, songs the user owns, or songs in their library
+    # (duplicate-detection adds other users' songs to your library).
+    if song.owner_id is not None and song.owner_id != current_user.id:
+        entry = await crud.get_library_entry(db, current_user.id, body.song_uuid)
+        if not entry:
+            raise HTTPException(status_code=404, detail="Song not found")
     ok = await crud.add_song_to_playlist(db, playlist_id, body.song_uuid)
     if not ok:
         raise HTTPException(status_code=409, detail="Song already in playlist")

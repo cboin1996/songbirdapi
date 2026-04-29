@@ -5,10 +5,20 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from songbirdapi.models import Base
+from songbirdapi.settings import SongbirdServerConfig
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Override the static alembic.ini url with the runtime DSN built from env vars
+# (POSTGRES_HOST, POSTGRES_PORT, etc.) so migrations work in both local dev and
+# the docker container where the host is "postgres" rather than "localhost".
+try:
+    config.set_main_option("sqlalchemy.url", SongbirdServerConfig().postgres_dsn)
+except Exception:
+    # If settings can't load (e.g. env not present), fall back to alembic.ini default.
+    pass
 
 target_metadata = Base.metadata
 

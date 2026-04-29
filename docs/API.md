@@ -135,10 +135,10 @@ The web client uploads up to 100 MB per file (configured via `next.config.ts` â†
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `GET` | `/state` | cookie | Restore queue, queue index, shuffle/repeat, current uuid, manual-next |
-| `PUT` | `/state` | cookie | Persist the same |
+| `GET` | `/state` | cookie | Restore queue, queue index, shuffle/repeat, current uuid, manual-next, queue_sources |
+| `PUT` | `/state` | cookie | Persist the same (includes queue_sources array with label, href, id) |
 
-Web client persists every queue mutation; on page load `PlayerProvider` restores from this endpoint.
+Web client persists every queue mutation including queue sources (context of where the queue originated); on page load `PlayerProvider` restores from this endpoint. `queue_sources` is now server-of-truth (replaced localStorage-only pattern).
 
 ## share â€” `/v1/share` (`routers/share.py`)
 

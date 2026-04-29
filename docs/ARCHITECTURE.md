@@ -107,6 +107,21 @@ The semaphore lives in process memory; multiple workers (e.g. multiple uvicorn r
 
 The browser keeps the cookies httpOnly so JS can't read them; `songbirdweb`'s middleware refreshes the access cookie transparently when expired.
 
+## Queue sources
+
+When a user plays music from a context (songs tab, artist page, explore, playlist), the client records the source via `queue_sources` — an array of `QueueSource` objects:
+
+```python
+class QueueSource(BaseModel):
+    label: str      # "All Songs", "Artist: John Doe", etc.
+    href: str       # "/library?view=songs", "/library?view=artists&artist=John+Doe"
+    id: str | None  # playlist UUID if applicable; None for generated contexts
+```
+
+On every `PUT /v1/player/state`, the client includes the current `queue_sources`. On `GET /v1/player/state`, the server returns them so the player UI can display "Now playing from [label]" and reconstruct the original link.
+
+This replaces the localStorage-only `playerSources` pattern — queue sources are now server-of-truth.
+
 ## Postgres schema
 
 All tables live in the `public` schema and are managed by Alembic. The schema is also created from models on first boot (`Base.metadata.create_all` in the lifespan handler) so a fresh DB works out of the box.
@@ -118,7 +133,7 @@ All tables live in the `public` schema and are managed by Alembic. The schema is
 | `user_songs` | (`user_id`, `song_id`) PK | per-user library; tracks `last_position`, `last_played_at` |
 | `song_plays` | `id` PK, `song_id` FK, `user_id` FK, `played_at` | indexed on `played_at` for explore |
 | `song_downloads` | `id` PK, `song_id` FK, `user_id` FK, `downloaded_at` | indexed on `downloaded_at` |
-| `user_player_state` | `user_id` PK | persisted queue + index, shuffle order/seed, repeat enum, `manual_next`, current uuid |
+| `user_player_state` | `user_id` PK | persisted queue + index, shuffle order/seed, repeat enum, `manual_next`, current uuid, `queue_sources` JSONB |
 | `user_offline_songs` | (`user_id`, `song_id`) PK | server-side hint of which songs the user wants cached on every device |
 | `song_share_tokens` | `token` PK | time-limited; default 24 h |
 | `edit_jobs` | `id` PK, `source_song_id` FK, status enum, `result_song_id`, `params` JSONB, `error` | `EditJobStatus`: pending, processing, done, failed, duplicate |

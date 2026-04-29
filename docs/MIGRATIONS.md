@@ -75,6 +75,10 @@ docker compose up -d
 
 Run migrations from a one-shot container (the `--rm` form) before bringing the service up — that way the running app boots against the new schema. Alternatively, a future `entrypoint.sh` wrapper could `alembic upgrade head` automatically on container start; today that wrapper does not exist.
 
+## Recent migrations
+
+- **`2f5adcc84df4_add_queue_sources_to_user_player_state.py`** (keebox-beta-1+): Adds `queue_sources` JSONB column to `user_player_state`. Clients now send queue metadata (source label, href, playlist ID) to restore playback context on reload.
+
 ## Adding a brand-new migration directory
 
 If you ever wipe `migrations/versions/`, restart fresh:

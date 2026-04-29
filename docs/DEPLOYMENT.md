@@ -198,6 +198,34 @@ Backup of the original NPM-generated config lives at `/home/keenan/netflix/nginx
 | Clean up dangling images | `docker image prune -f` |
 | Check disk usage | `du -sh /mnt/jellydisk3/songbird/*` |
 
+## CI/CD design (new)
+
+**PR workflow:**
+- `test.yml` runs `migrate + lint + test + test-integration` with postgres service.
+- Merge gates on passing checks.
+
+**Main branch:**
+- On push, `docker.yml` builds the image and pushes to Docker Hub (tagged with commit SHA + `latest`).
+
+**Tags (semver):**
+- `v1.0.0`, `v1.1.0`, etc. → keebox deploy + GitHub release (future automation).
+- Manual deploy from `*-enhancements` branches with `keebox-beta-2` tags for now.
+
+**Semver bumps:**
+- Must update both `songbirdapi/version.py` and `pyproject.toml`.
+- web's `package.json` and API versions must move together (future PR check will enforce).
+
+## Migration strategy
+
+On keebox, migrations are **always run before bringing the service up**:
+
+```bash
+docker compose run --rm songbirdapi alembic upgrade head
+docker compose up -d
+```
+
+This ensures the running app boots against the new schema. Rollback is same process with `alembic downgrade <prior-rev>`.
+
 ## Why we deploy this way (for now)
 
 Manual beta deploy validates the full stack with real users before automating CI. ~567 enriched MP3 / M4A files were imported via the import UI for content. Once the test harness backlog is cleared and CI deploy lands, this runbook becomes a fallback for emergency rollbacks; routine pushes will be automated.

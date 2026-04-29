@@ -605,6 +605,7 @@ async def upsert_player_state(
     shuffle_position: int = 0,
     manual_next: list[str] | None = None,
     current_song_uuid: str | None = None,
+    queue_sources: dict | None = None,
 ) -> UserPlayerState:
     state = await get_player_state(db, user_id)
     if state is None:
@@ -620,6 +621,7 @@ async def upsert_player_state(
     state.shuffle_position = shuffle_position
     state.manual_next = manual_next or []
     state.current_song_uuid = current_song_uuid
+    state.queue_sources = queue_sources or {}
     state.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(state)

@@ -101,6 +101,7 @@ class UserPlayerState(Base):
     shuffle_position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     manual_next: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     current_song_uuid: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    queue_sources: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
 
 

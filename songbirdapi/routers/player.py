@@ -12,6 +12,12 @@ from ..models import RepeatMode, User
 router = APIRouter(prefix="/player", tags=["player"])
 
 
+class QueueSource(BaseModel):
+    id: str
+    label: str
+    href: str
+
+
 class PlayerState(BaseModel):
     shuffle: bool
     repeat: Literal['off', 'one', 'all']
@@ -23,6 +29,7 @@ class PlayerState(BaseModel):
     shuffle_position: int = 0
     manual_next: list[str] = Field(default_factory=list)
     current_song_uuid: str | None = None
+    queue_sources: dict[str, QueueSource] = Field(default_factory=dict)
 
 
 def _serialize(state) -> PlayerState:
@@ -37,6 +44,7 @@ def _serialize(state) -> PlayerState:
         shuffle_position=state.shuffle_position or 0,
         manual_next=state.manual_next or [],
         current_song_uuid=state.current_song_uuid,
+        queue_sources=state.queue_sources or {},
     )
 
 
@@ -69,5 +77,6 @@ async def update_state(
         body.shuffle_position,
         body.manual_next,
         body.current_song_uuid,
+        {k: v.model_dump() for k, v in body.queue_sources.items()},
     )
     return _serialize(state)

@@ -781,11 +781,15 @@ async def remove_offline_song(db: AsyncSession, user_id: str, song_id: str) -> N
 
 
 async def sync_offline_songs(db: AsyncSession, user_id: str, local_ids: list[str]) -> list[str]:
-    """Upsert all local_ids for this user; return ids that are on server but not in local_ids."""
+    """Upsert all local_ids for this user; return ids that are on server but not in local_ids.
+    Skips ids whose songs no longer exist (e.g., after a DB wipe) to avoid FK violations."""
     server_ids = set(await get_offline_song_ids(db, user_id))
     local_set = set(local_ids)
-    for song_id in local_set - server_ids:
-        db.add(UserOfflineSong(user_id=user_id, song_id=song_id))
+    new_ids = local_set - server_ids
+    if new_ids:
+        existing = (await db.execute(select(Song.uuid).where(Song.uuid.in_(new_ids)))).scalars().all()
+        for song_id in existing:
+            db.add(UserOfflineSong(user_id=user_id, song_id=song_id))
     await db.commit()
     return list(server_ids - local_set)
 

@@ -33,6 +33,18 @@ POSTGRES_PERSISTENCE_DIR=./data/postgres/
 SONGBIRD_API_PERSISTENCE_DIR=./data/songbirdapi/
 SONGBIRD_API_DOWNLOADS_DIR=$(SONGBIRD_API_PERSISTENCE_DIR)downloads
 
+.PHONY: dev-wipe
+dev-wipe:
+	@echo "Wiping dev DB..."
+	docker exec $(DOCKER_POSTGRES_NAME) psql -U songbirdapi -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'songbirdapi' AND pid <> pg_backend_pid();"
+	docker exec $(DOCKER_POSTGRES_NAME) psql -U songbirdapi -d postgres -c "DROP DATABASE IF EXISTS songbirdapi;"
+	docker exec $(DOCKER_POSTGRES_NAME) psql -U songbirdapi -d postgres -c "CREATE DATABASE songbirdapi;"
+	@echo "Wiping file storage..."
+	rm -rf ./data/artwork/* ./data/downloads/* ./data/songbirdapi/downloads/*
+	@echo "Running migrations..."
+	$(MAKE) migrate
+	@echo "Done. Clear browser site data manually (DevTools → Application → Clear site data)."
+
 .PHONY: volumes
 volumes:
 	mkdir -p $(POSTGRES_PERSISTENCE_DIR) || true

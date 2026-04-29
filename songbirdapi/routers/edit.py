@@ -96,7 +96,7 @@ async def _run_edit_job(job_id: str, source_song_id: str, user_id: str, params: 
                 if merged_props is not None:
                     _retag_file(dest_path, merged_props)
                     await crud.update_song_properties(db, source_song_id, merged_props)
-                    if source.owner_id == user_id and crud._is_publish_eligible(merged_props):
+                    if source.owner_id == user_id and crud._is_publish_eligible(merged_props, artwork_cached=source.artwork_thumb is not None):
                         await crud.publish_song(db, source_song_id, as_original=as_original)
                 await crud.update_edit_job(db, job_id, EditJobStatus.done, result_song_id=source_song_id)
             except Exception as exc:
@@ -140,7 +140,7 @@ async def _run_edit_job(job_id: str, source_song_id: str, user_id: str, params: 
                         await crud.delete_song(db, source.parent_song_id)
 
                 await crud.add_to_library(db, user_id, new_uuid)
-                if merged_props is not None and crud._is_publish_eligible(merged_props):
+                if merged_props is not None and crud._is_publish_eligible(merged_props, artwork_cached=source.artwork_thumb is not None):
                     await crud.publish_song(db, new_uuid, as_original=as_original)
                 await crud.update_edit_job(db, job_id, EditJobStatus.done, result_song_id=new_uuid)
             except Exception as exc:

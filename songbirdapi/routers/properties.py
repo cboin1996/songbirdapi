@@ -11,7 +11,7 @@ from songbirdcore.models.itunes_api import ItunesApiAlbumKeys, ItunesApiSongMode
 from songbirdcore.models.modes import Modes
 
 from songbirdapi import crud
-from ..crud import _is_publish_eligible
+from ..crud import _is_publish_eligible, _get_missing_fields
 from ..dependencies import get_current_user, get_db, load_settings
 from ..models import Role, User
 
@@ -107,6 +107,24 @@ async def get_properties(
     return await crud.search_songs(db, filter_query.query, user_id=None)
 
 
+class EligibilityResponse(BaseModel):
+    eligible: bool
+    missing_fields: list[str]
+
+
+@router.get("/{song_id}/eligible", response_model=EligibilityResponse)
+async def get_song_eligibility(
+    song_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+) -> EligibilityResponse:
+    song = await crud.get_song(db, song_id)
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+    missing = _get_missing_fields(song.properties, artwork_cached=song.artwork_thumb is not None)
+    return EligibilityResponse(eligible=len(missing) == 0, missing_fields=missing)
+
+
 @router.get("/{id}")
 async def get_properties_id(id: str, db: AsyncSession = Depends(get_db)) -> ItunesApiSongModel:
     """Get song properties for a given URL"""
@@ -182,7 +200,7 @@ async def put_properties(
         background_tasks.add_task(_cache_artwork, body.song_id, body.properties.artworkUrl100)
 
     song = await crud.get_song(db, body.song_id)
-    if song and song.owner_id == current_user.id and _is_publish_eligible(props):
+    if song and song.owner_id == current_user.id and _is_publish_eligible(props, artwork_cached=song.artwork_thumb is not None):
         as_original = body.as_original and current_user.role == Role.admin
         await crud.publish_song(db, body.song_id, as_original=as_original)
 

@@ -47,12 +47,24 @@ async def update_song_properties(db: AsyncSession, uuid: str, properties: dict) 
     return song
 
 
-def _is_publish_eligible(properties: dict | None) -> bool:
+_PUBLISH_REQUIRED = ["trackName", "artistName", "collectionName", "primaryGenreName",
+                     "releaseDate", "trackNumber"]
+
+
+def _get_missing_fields(properties: dict | None, artwork_cached: bool = False) -> list[str]:
     if not properties:
-        return False
-    required = ["trackName", "artistName", "collectionName", "artworkUrl100", "primaryGenreName",
-                "releaseDate", "collectionId", "trackNumber"]
-    return all(bool(properties.get(f)) for f in required)
+        missing = list(_PUBLISH_REQUIRED)
+        if not artwork_cached:
+            missing.append("artwork")
+        return missing
+    missing = [f for f in _PUBLISH_REQUIRED if not bool(properties.get(f))]
+    if not artwork_cached and not bool(properties.get("artworkUrl100")):
+        missing.append("artwork")
+    return missing
+
+
+def _is_publish_eligible(properties: dict | None, artwork_cached: bool = False) -> bool:
+    return len(_get_missing_fields(properties, artwork_cached=artwork_cached)) == 0
 
 
 async def publish_song(db: AsyncSession, song_id: str, as_original: bool = False) -> None:

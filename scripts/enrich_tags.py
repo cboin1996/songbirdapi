@@ -7,11 +7,18 @@ For each file in the target directory:
   - Otherwise search iTunes by trackName + artistName, pick an exact match,
     back up the original, and re-tag with songbirdcore.
 
+Modes:
+  default — enrich tags via iTunes
+  --analyse — report tag gaps only
+  --rename — strip 'NN ' and 'N-NN ' prefixes from filenames + tag title (no iTunes calls)
+
 Usage:
     source .venv/bin/activate
     python scripts/enrich_tags.py ~/Downloads [--dry-run] [--rate-limit 0.5]
+    python scripts/enrich_tags.py ~/Downloads --rename [--dry-run]
 """
 import argparse
+import re
 import shutil
 import time
 import os
@@ -171,11 +178,113 @@ def analyse(scan_dir: Path):
             print(f"  MISSING {missing}  {name}")
 
 
+_PREFIX_RE = re.compile(r'^(?:\d+-\d+|\d+)\s+')
+
+
+def clean_filename_stem(stem: str) -> str:
+    """Strip 'NN ' / 'N-NN ' prefix and convert trailing _ → ?"""
+    cleaned = _PREFIX_RE.sub('', stem).strip()
+    # Trailing underscore is a common substitution for '?' (filesystem-safe download names).
+    if cleaned.endswith('_'):
+        cleaned = cleaned[:-1] + '?'
+    return cleaned
+
+
+def _set_mp3_title(path: str, title: str) -> bool:
+    af = eyed3.load(path)
+    if not af or not af.tag:
+        return False
+    af.tag.title = title
+    af.tag.save()
+    return True
+
+
+def _set_m4a_title(path: str, title: str) -> bool:
+    try:
+        af = MP4(path)
+    except Exception:
+        return False
+    af["\xa9nam"] = title
+    af.save()
+    return True
+
+
+def rename_pass(scan_dir: Path, dry_run: bool) -> None:
+    files = sorted(p for p in scan_dir.iterdir() if p.suffix.lower() in (".mp3", ".m4a"))
+    print(f"Scanning {len(files)} files in {scan_dir}")
+    if dry_run:
+        print("DRY RUN — no files will be modified\n")
+
+    renamed = title_set = unchanged = collisions = 0
+    used_targets: set[Path] = set()
+
+    for f in files:
+        ext = f.suffix.lower()
+        new_stem = clean_filename_stem(f.stem)
+        if not new_stem:
+            print(f"  SKIP (empty after strip)  {f.name}")
+            unchanged += 1
+            continue
+
+        target = scan_dir / f"{new_stem}{ext}"
+
+        # Collision handling: if the target already exists (and isn't this same file), suffix " (2)", " (3)", ...
+        if target != f and (target.exists() or target in used_targets):
+            i = 2
+            while True:
+                candidate = scan_dir / f"{new_stem} ({i}){ext}"
+                if not candidate.exists() and candidate not in used_targets:
+                    target = candidate
+                    collisions += 1
+                    break
+                i += 1
+
+        # Decide tag-title fix BEFORE we rename (read tags from current path).
+        tags = _read_mp3_tags(str(f)) if ext == ".mp3" else _read_m4a_tags(str(f))
+        existing_title = (tags.get("trackName") or "").strip()
+        needs_title = not existing_title
+        proposed_title = new_stem
+
+        action_bits = []
+        if target != f:
+            action_bits.append(f"rename → {target.name}")
+        if needs_title:
+            action_bits.append(f"set title → '{proposed_title}'")
+        if not action_bits:
+            unchanged += 1
+            continue
+
+        print(f"  {' + '.join(action_bits):<60}  {f.name}")
+
+        if not dry_run:
+            if needs_title:
+                ok = _set_mp3_title(str(f), proposed_title) if ext == ".mp3" else _set_m4a_title(str(f), proposed_title)
+                if not ok:
+                    print(f"    ERR: could not set title")
+                    continue
+                title_set += 1
+            if target != f:
+                f.rename(target)
+                renamed += 1
+                used_targets.add(target)
+        else:
+            if target != f: renamed += 1
+            if needs_title: title_set += 1
+            used_targets.add(target)
+
+    print(f"\n--- Rename summary{' (dry run)' if dry_run else ''} ---")
+    print(f"Files renamed:     {renamed}")
+    print(f"Titles set:        {title_set}")
+    print(f"Collisions suffixed: {collisions}")
+    print(f"Unchanged:         {unchanged}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Enrich mp3/m4a tags via iTunes API")
     parser.add_argument("directory", help="Directory to scan")
     parser.add_argument("--dry-run", action="store_true", help="Don't modify files")
     parser.add_argument("--analyse", action="store_true", help="Report tag gaps only, no iTunes lookups")
+    parser.add_argument("--rename", action="store_true", help="Strip filename prefixes; for files lacking trackName tag, set tag.title from cleaned filename. No iTunes calls.")
     parser.add_argument("--rate-limit", type=float, default=1.0, help="Seconds between iTunes API calls (default 1.0)")
     parser.add_argument("--limit", type=int, default=None, help="Max number of files to process")
     args = parser.parse_args()
@@ -187,6 +296,10 @@ def main():
 
     if args.analyse:
         analyse(scan_dir)
+        return
+
+    if args.rename:
+        rename_pass(scan_dir, args.dry_run)
         return
 
     backup_dir = scan_dir / ".songbird_backup"

@@ -55,24 +55,28 @@ class SongWithCount(BaseModel):
     properties: dict | None
     count: int
     source: str | None = None
+    artwork_cached: bool = False
 
 
 class RecentlyPlayedSong(BaseModel):
     uuid: str
     properties: dict | None
     last_played_at: str
+    artwork_cached: bool = False
 
 
 class RecentlySavedSong(BaseModel):
     uuid: str
     properties: dict | None
     added_at: str
+    artwork_cached: bool = False
 
 
 class RecentlyAddedSong(BaseModel):
     uuid: str
     url: str
     properties: dict | None
+    artwork_cached: bool = False
     added_at: str
     source: str | None = None
 
@@ -119,7 +123,7 @@ async def explore(
     your_recently_saved = await crud.get_user_recently_saved(db, current_user.id, window)
     your_recently_played = await crud.get_user_recently_played(db, current_user.id, window=window)
     recently_added = [
-        RecentlyAddedSong(uuid=s.uuid, url=s.url, properties=s.properties, added_at=s.created_at.isoformat(), source=s.source)
+        RecentlyAddedSong(uuid=s.uuid, url=s.url, properties=s.properties, added_at=s.created_at.isoformat(), source=s.source, artwork_cached=s.artwork_thumb is not None)
         for s in recently_added_songs
     ]
     return ExploreResponse(
@@ -189,9 +193,5 @@ async def upload_artwork(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await crud.update_song_artwork(db, id, thumb_path, full_path)
-
-    props = dict(song.properties or {})
-    props["artworkUrl100"] = f"/v1/songs/{id}/artwork"
-    await crud.update_song_properties(db, id, props)
 
     return {"ok": True}

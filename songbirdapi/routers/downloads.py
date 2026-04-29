@@ -189,7 +189,6 @@ async def get_download(id: str, request: Request, db: AsyncSession = Depends(get
 
 @router.delete("/{id}")
 async def delete_download(id: str, db: AsyncSession = Depends(get_db)):
-    song = await crud.get_song(db, id)
-    if song and os.path.exists(song.file_path):
-        os.remove(song.file_path)
+    if await crud.child_ref_count(db, id) > 0:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Song has edited versions and cannot be deleted")
     await crud.delete_song(db, id)

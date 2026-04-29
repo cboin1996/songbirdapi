@@ -12,7 +12,7 @@ from songbirdcore import itunes
 from .. import crud, database
 from ..crud import _is_publish_eligible
 from ..dependencies import get_current_user, get_db, load_settings
-from ..models import EditJobStatus, ImportJob, Song, User
+from ..models import EditJobStatus, ImportJob, Role, Song, User
 
 _config = load_settings()
 router = APIRouter(prefix="/import", tags=["import"])
@@ -35,7 +35,7 @@ class ImportJobsPage(BaseModel):
     jobs: list[ImportJobResponse]
 
 
-async def _run_import(job_id: str, dest_path: str, ext: str, user_id: str) -> None:
+async def _run_import(job_id: str, dest_path: str, ext: str, user_id: str, as_original: bool = False) -> None:
     async with _import_semaphore:
         async with database._session_factory() as db:
             await crud.update_import_job(db, job_id, EditJobStatus.processing)
@@ -66,14 +66,24 @@ async def _run_import(job_id: str, dest_path: str, ext: str, user_id: str) -> No
 
                 song_uuid = os.path.splitext(os.path.basename(dest_path))[0]
                 _REQUIRED_NO_ART = ["trackName", "artistName", "collectionName", "primaryGenreName"]
-                auto_publish = bool(props) and all(bool((props or {}).get(f)) for f in _REQUIRED_NO_ART) and (bool((props or {}).get("artworkUrl100")) or bool(artwork_bytes))
+                eligible = bool(props) and all(bool((props or {}).get(f)) for f in _REQUIRED_NO_ART) and (bool((props or {}).get("artworkUrl100")) or bool(artwork_bytes))
+
+                if as_original and eligible:
+                    owner_id, source = None, None
+                elif as_original and not eligible:
+                    owner_id, source = user_id, None
+                elif eligible:
+                    owner_id, source = None, "community"
+                else:
+                    owner_id, source = user_id, None
+
                 song = Song(
                     uuid=song_uuid,
                     url="",
                     file_path=dest_path,
                     properties=props,
-                    owner_id=None if auto_publish else user_id,
-                    source="community" if auto_publish else None,
+                    owner_id=owner_id,
+                    source=source,
                 )
                 db.add(song)
                 await db.commit()
@@ -128,12 +138,16 @@ async def list_imports(
 async def start_import(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    as_original: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ImportJobResponse:
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in (".mp3", ".m4a"):
         raise HTTPException(status_code=400, detail="only mp3 and m4a supported")
+
+    if as_original and current_user.role != Role.admin:
+        raise HTTPException(status_code=403, detail="only admins can import as original")
 
     new_uuid = str(uuid.uuid4())
     dest_path = os.path.join(_config.downloads_dir, f"{new_uuid}{ext}")
@@ -143,7 +157,7 @@ async def start_import(
         f.write(content)
 
     job = await crud.create_import_job(db, current_user.id, file.filename or "")
-    background_tasks.add_task(_run_import, job.id, dest_path, ext, current_user.id)
+    background_tasks.add_task(_run_import, job.id, dest_path, ext, current_user.id, as_original)
     return ImportJobResponse(job_id=job.id, status=job.status.value)
 
 

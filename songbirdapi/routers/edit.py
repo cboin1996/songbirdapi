@@ -103,7 +103,8 @@ async def _run_edit_job(job_id: str, source_song_id: str, user_id: str, params: 
                 # Enforce 2-edit cap: delete the old grandparent (pre-last-save) if it
                 # is not the root and has no other library references.
                 if source.parent_song_id and source.parent_song_id != root_id:
-                    if await crud.library_ref_count(db, source.parent_song_id) == 0:
+                    if await crud.library_ref_count(db, source.parent_song_id) == 0 \
+                            and await crud.child_ref_count(db, source.parent_song_id) == 0:
                         await crud.delete_song(db, source.parent_song_id)
 
                 await crud.add_to_library(db, user_id, new_uuid)

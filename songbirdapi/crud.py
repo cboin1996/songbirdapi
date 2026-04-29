@@ -47,24 +47,19 @@ async def update_song_properties(db: AsyncSession, uuid: str, properties: dict) 
     return song
 
 
-async def delete_song(db: AsyncSession, uuid: str) -> bool:
-    result = await db.execute(delete(Song).where(Song.uuid == uuid))
-    await db.commit()
-    return result.rowcount > 0
-
-
 def _is_publish_eligible(properties: dict | None) -> bool:
     if not properties:
         return False
-    required = ["trackName", "artistName", "collectionName", "artworkUrl100", "primaryGenreName"]
+    required = ["trackName", "artistName", "collectionName", "artworkUrl100", "primaryGenreName",
+                "releaseDate", "collectionId", "trackNumber"]
     return all(bool(properties.get(f)) for f in required)
 
 
-async def publish_song(db: AsyncSession, song_id: str) -> None:
+async def publish_song(db: AsyncSession, song_id: str, as_original: bool = False) -> None:
     song = await get_song(db, song_id)
     if song:
         song.owner_id = None
-        song.source = "community"
+        song.source = None if as_original else "community"
         await db.commit()
 
 
@@ -216,6 +211,11 @@ async def library_ref_count(db: AsyncSession, song_id: str) -> int:
     return result.scalar_one()
 
 
+async def child_ref_count(db: AsyncSession, song_id: str) -> int:
+    result = await db.execute(select(func.count()).where(Song.parent_song_id == song_id))
+    return result.scalar_one()
+
+
 async def delete_song(db: AsyncSession, song_id: str) -> None:
     import os
     song = await get_song(db, song_id)
@@ -274,7 +274,7 @@ async def get_popular_songs(db: AsyncSession, window: str, limit: int = 10, user
     if cutoff:
         q = q.where(SongPlay.played_at >= cutoff)
     result = await db.execute(q)
-    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source, "artwork_cached": s.artwork_thumb is not None} for s, c in result.all()]
 
 
 async def get_popular_downloads(db: AsyncSession, window: str, limit: int = 10, user_id: str | None = None) -> list[dict]:
@@ -290,7 +290,7 @@ async def get_popular_downloads(db: AsyncSession, window: str, limit: int = 10, 
     if cutoff:
         q = q.where(SongDownload.downloaded_at >= cutoff)
     result = await db.execute(q)
-    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source, "artwork_cached": s.artwork_thumb is not None} for s, c in result.all()]
 
 
 async def get_recently_added(db: AsyncSession, limit: int = 50, user_id: str | None = None, window: str = "all") -> list[Song]:
@@ -315,7 +315,7 @@ async def get_most_libraryed(db: AsyncSession, window: str, limit: int = 10, use
     if cutoff:
         q = q.where(UserSong.added_at >= cutoff)
     result = await db.execute(q)
-    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source, "artwork_cached": s.artwork_thumb is not None} for s, c in result.all()]
 
 
 async def get_user_most_played(db: AsyncSession, user_id: str, window: str = "all", limit: int = 10) -> list[dict]:
@@ -331,7 +331,7 @@ async def get_user_most_played(db: AsyncSession, user_id: str, window: str = "al
     if cutoff:
         q = q.where(SongPlay.played_at >= cutoff)
     result = await db.execute(q)
-    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source, "artwork_cached": s.artwork_thumb is not None} for s, c in result.all()]
 
 
 async def get_user_recently_played(db: AsyncSession, user_id: str, limit: int = 50, window: str = "all") -> list[dict]:
@@ -347,7 +347,7 @@ async def get_user_recently_played(db: AsyncSession, user_id: str, limit: int = 
         q = q.where(UserSong.last_played_at >= cutoff)
     result = await db.execute(q)
     return [
-        {"uuid": s.uuid, "properties": s.properties, "last_played_at": lp.isoformat()}
+        {"uuid": s.uuid, "properties": s.properties, "last_played_at": lp.isoformat(), "artwork_cached": s.artwork_thumb is not None}
         for s, lp in result.all()
     ]
 
@@ -383,7 +383,7 @@ async def get_community_popular(db: AsyncSession, window: str, limit: int = 10) 
     if cutoff:
         q = q.where(SongPlay.played_at >= cutoff)
     result = await db.execute(q)
-    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source, "artwork_cached": s.artwork_thumb is not None} for s, c in result.all()]
 
 
 async def get_user_recently_saved(db: AsyncSession, user_id: str, window: str = "all", limit: int = 10) -> list[dict]:
@@ -398,7 +398,7 @@ async def get_user_recently_saved(db: AsyncSession, user_id: str, window: str = 
     if cutoff:
         q = q.where(UserSong.added_at >= cutoff)
     result = await db.execute(q)
-    return [{"uuid": s.uuid, "properties": s.properties, "added_at": at.isoformat()} for s, at in result.all()]
+    return [{"uuid": s.uuid, "properties": s.properties, "added_at": at.isoformat(), "artwork_cached": s.artwork_thumb is not None} for s, at in result.all()]
 
 
 async def get_user_most_downloaded(db: AsyncSession, user_id: str, window: str = "all", limit: int = 10) -> list[dict]:
@@ -414,7 +414,7 @@ async def get_user_most_downloaded(db: AsyncSession, user_id: str, window: str =
     if cutoff:
         q = q.where(SongDownload.downloaded_at >= cutoff)
     result = await db.execute(q)
-    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source} for s, c in result.all()]
+    return [{"uuid": s.uuid, "properties": s.properties, "count": c, "source": s.source, "artwork_cached": s.artwork_thumb is not None} for s, c in result.all()]
 
 
 # --- edit jobs ---

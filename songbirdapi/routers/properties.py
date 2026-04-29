@@ -4,7 +4,7 @@ from typing import Annotated, List, Optional, Union
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.logger import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from songbirdcore import itunes
 from songbirdcore.models.itunes_api import ItunesApiAlbumKeys, ItunesApiSongModel
@@ -13,7 +13,7 @@ from songbirdcore.models.modes import Modes
 from songbirdapi import crud
 from ..crud import _is_publish_eligible
 from ..dependencies import get_current_user, get_db, load_settings
-from ..models import User
+from ..models import Role, User
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
 logger.handlers = uvicorn_logger.handlers
@@ -36,8 +36,24 @@ class SongResponse(BaseModel):
     properties: Optional[ItunesApiSongModel]
     owner_id: Optional[str] = None
     source: Optional[str] = None
+    artwork_cached: bool = False
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode='before')
+    @classmethod
+    def _compute(cls, data):
+        if hasattr(data, 'artwork_thumb'):
+            return {
+                'uuid': data.uuid,
+                'url': data.url,
+                'file_path': data.file_path,
+                'properties': data.properties,
+                'owner_id': data.owner_id,
+                'source': getattr(data, 'source', None),
+                'artwork_cached': data.artwork_thumb is not None,
+            }
+        return data
 
 
 class TaggedCachedSong(BaseModel):
@@ -111,6 +127,7 @@ async def get_properties_id(id: str, db: AsyncSession = Depends(get_db)) -> Itun
 class TagBody(BaseModel):
     properties: ItunesApiSongModel
     song_id: str
+    as_original: bool = False
 
 
 async def _cache_artwork(song_id: str, itunes_url: str) -> None:
@@ -140,8 +157,17 @@ async def put_properties(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=msg
         )
-    # TODO: are the tags working properly?
-    result = itunes.mp3ID3Tagger(song.file_path, body.properties)
+    artwork_url = body.properties.artworkUrl100 or ""
+    if not artwork_url.startswith("http"):
+        artwork_url = (song.properties or {}).get("artworkUrl100", "")
+
+    ext = os.path.splitext(song.file_path)[1].lower()
+    if artwork_url.startswith("http"):
+        props_for_tagging = body.properties.model_copy(update={"artworkUrl100": artwork_url})
+        result = itunes.mp3ID3Tagger(song.file_path, props_for_tagging) if ext == ".mp3" else itunes.m4a_tagger(song.file_path, props_for_tagging)
+    else:
+        result = itunes.mp3ID3TaggerNoArtwork(song.file_path, body.properties) if ext == ".mp3" else itunes.m4aID3TaggerNoArtwork(song.file_path, body.properties)
+
     if not result:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -157,6 +183,7 @@ async def put_properties(
 
     song = await crud.get_song(db, body.song_id)
     if song and song.owner_id == current_user.id and _is_publish_eligible(props):
-        await crud.publish_song(db, body.song_id)
+        as_original = body.as_original and current_user.role == Role.admin
+        await crud.publish_song(db, body.song_id, as_original=as_original)
 
     return TagResponse(song_id=body.song_id)

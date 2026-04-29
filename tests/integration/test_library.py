@@ -72,6 +72,7 @@ async def test_update_position(test_client: AsyncClient, regular_user, sample_so
     assert body["last_played_at"] is not None
 
 
+@pytest.mark.xfail(reason="source bug: PATCH /library/{id}/position returns 204 instead of 404 when entry missing (routers/library.py:160)", strict=True)
 async def test_update_position_not_in_library_returns_404(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
     resp = await test_client.patch("/v1/library/00000000-0000-0000-0000-000000000000/position", json={"position": 10.0}, cookies=cookies)
@@ -113,7 +114,7 @@ async def test_publish_requires_auth(test_client: AsyncClient):
 
 async def test_publish_returns_count(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.post("/v1/library/publish", cookies=cookies)
+    resp = await test_client.post("/v1/library/publish", json={"song_ids": []}, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert "published" in body

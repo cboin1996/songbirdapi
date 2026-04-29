@@ -31,8 +31,9 @@ async def test_get_draft(test_client: AsyncClient, regular_user, sample_song):
     resp = await test_client.get(f"/v1/edit/songs/{sample_song.uuid}/draft", cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["trim_start"] == 0
-    assert body["volume"] == 1.0
+    assert body["params"]["trim_start"] == 0
+    assert body["params"]["volume"] == 1.0
+    assert "updated_at" in body
 
 
 async def test_delete_draft(test_client: AsyncClient, regular_user, sample_song):

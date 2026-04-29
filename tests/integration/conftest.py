@@ -6,7 +6,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from songbirdapi import crud
+from songbirdapi import crud, database
 from songbirdapi.database import get_db
 from songbirdapi.models import Base, Role, Song, User
 from songbirdapi.security import hash_password
@@ -21,6 +21,12 @@ if os.getenv("ENV") not in ("dev", "test"):
 _config = SongbirdServerConfig()  # pyright: ignore
 _engine = create_async_engine(_config.postgres_dsn)
 _TestingSession = async_sessionmaker(_engine, expire_on_commit=False)
+
+# Initialize the module-level session factory so background tasks (edit/imports)
+# and the unhandled-exception handler in server.py can open sessions even though
+# the FastAPI lifespan never runs under ASGITransport.
+database._engine = _engine
+database._session_factory = _TestingSession
 
 
 async def _override_get_db():
@@ -38,6 +44,18 @@ async def test_client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
     await _engine.dispose()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _isolate_cookies(test_client):
+    """
+    httpx AsyncClient is session-scoped, so cookies set by login() in one test
+    leak into the next. Clear the jar before each test so `*_requires_auth`
+    tests run anonymously and per-test logins start clean.
+    """
+    test_client.cookies.clear()
+    yield
+    test_client.cookies.clear()
 
 
 @pytest_asyncio.fixture(scope="session")

@@ -14,7 +14,7 @@ async def login(test_client: AsyncClient, user) -> dict:
 # ---------------------------------------------------------------------------
 
 async def test_download_post_requires_auth(test_client: AsyncClient):
-    resp = await test_client.post("/v1/download/", json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"})
+    resp = await test_client.post("/v1/download", json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"})
     assert resp.status_code == 401
 
 
@@ -56,7 +56,7 @@ async def test_delete_download_nonexistent_is_ok(test_client: AsyncClient, regul
 async def test_download_cached_returns_existing_song(test_client: AsyncClient, regular_user, sample_song):
     cookies = await login(test_client, regular_user)
     resp = await test_client.post(
-        "/v1/download/",
+        "/v1/download",
         json={"url": sample_song.url, "ignore_cache": False},
         cookies=cookies,
     )

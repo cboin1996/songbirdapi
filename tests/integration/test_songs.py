@@ -73,13 +73,13 @@ async def test_record_play_requires_auth(test_client: AsyncClient, sample_song):
 # ---------------------------------------------------------------------------
 
 async def test_get_artwork_not_found_song(test_client: AsyncClient):
-    resp = await test_client.get("/v1/songs/00000000-0000-0000-0000-000000000000/artwork")
+    resp = await test_client.get("/v1/songs/00000000-0000-0000-0000-000000000000/artwork/full")
     assert resp.status_code == 404
 
 
 async def test_get_artwork_no_cached_artwork(test_client: AsyncClient, sample_song):
     # sample_song has no artwork cached
-    resp = await test_client.get(f"/v1/songs/{sample_song.uuid}/artwork")
+    resp = await test_client.get(f"/v1/songs/{sample_song.uuid}/artwork/full")
     assert resp.status_code == 404
 
 

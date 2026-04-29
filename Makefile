@@ -19,7 +19,7 @@ test:
 
 .PHONY: test-integration
 test-integration:
-	ENV=dev uv run pytest tests/integration -v
+	ENV=$(or $(ENV),test) uv run pytest tests/integration -v
 
 .PHONY: migrate
 migrate:

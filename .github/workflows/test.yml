@@ -5,7 +5,33 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.13
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Cache uv venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Sync dependencies
+        run: uv sync --extra dev
+
+      - name: Unit tests
+        run: make test
+
+  integration:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -55,11 +81,8 @@ jobs:
           JWT_SECRET: test-secret
         run: make migrate
 
-      - name: Lint
-        run: make lint
-
-      - name: Unit tests
-        run: make test
+      - name: Create required directories
+        run: mkdir -p data/downloads
 
       - name: Create required directories
         run: mkdir -p data/downloads

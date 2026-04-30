@@ -11,21 +11,17 @@ _session_factory = None
 
 def init_engine(dsn: str):
     global _engine, _session_factory
-    # pool_recycle: cycle conns every 5 min to avoid stale state.
-    # idle_in_transaction_session_timeout: pg-side safety net — kill any conn
-    # left "idle in transaction" >30s. Defends against any path that misses
-    # commit/rollback (asyncpg+greenlet edge cases) without affecting healthy
-    # request flows. Belt-and-suspenders alongside session_scope's rollback.
+    # Plain pool config. Earlier defensive options (pool_pre_ping=True,
+    # pool_recycle=300, idle_in_transaction_session_timeout=30000) raced
+    # each other under load and produced "asyncpg.InternalClientError:
+    # cannot switch to state 15" — the pool was handing out connections
+    # while pg or pre_ping was mid-recycle. session_scope's finally
+    # rollback handles the original leak; we trust that.
     _engine = create_async_engine(
         dsn,
         echo=False,
         pool_size=20,
         max_overflow=10,
-        pool_pre_ping=True,
-        pool_recycle=300,
-        connect_args={
-            "server_settings": {"idle_in_transaction_session_timeout": "30000"},
-        },
     )
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 

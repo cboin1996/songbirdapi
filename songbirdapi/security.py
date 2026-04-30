@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -8,11 +9,23 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 ALGORITHM = "HS256"
 
 
-def hash_password(password: str) -> str:
+# bcrypt is intentionally CPU-heavy (~250ms per hash/verify on modern hw).
+# Running it directly inside an async route blocks the event loop; under
+# concurrent logins (e.g. e2e suite) the loop gets starved, sqlalchemy
+# pool releases stall, and the QueuePool exhausts. Offload to a thread.
+async def hash_password(password: str) -> str:
+    return await asyncio.to_thread(_hash_password_sync, password)
+
+
+async def verify_password(plain: str, hashed: str) -> bool:
+    return await asyncio.to_thread(_verify_password_sync, plain, hashed)
+
+
+def _hash_password_sync(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
-def verify_password(plain: str, hashed: str) -> bool:
+def _verify_password_sync(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 

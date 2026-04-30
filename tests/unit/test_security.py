@@ -13,18 +13,18 @@ from songbirdapi.security import (
 SECRET = "testsecretthatisenoughbytes123456"
 
 
-def test_hash_and_verify_password():
-    hashed = hash_password("hunter2")
-    assert verify_password("hunter2", hashed)
+async def test_hash_and_verify_password():
+    hashed = await hash_password("hunter2")
+    assert await verify_password("hunter2", hashed)
 
 
-def test_wrong_password_fails():
-    hashed = hash_password("hunter2")
-    assert not verify_password("wrongpassword", hashed)
+async def test_wrong_password_fails():
+    hashed = await hash_password("hunter2")
+    assert not await verify_password("wrongpassword", hashed)
 
 
-def test_hash_is_not_plaintext():
-    hashed = hash_password("hunter2")
+async def test_hash_is_not_plaintext():
+    hashed = await hash_password("hunter2")
     assert hashed != "hunter2"
 
 

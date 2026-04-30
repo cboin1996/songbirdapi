@@ -49,7 +49,7 @@ async def seed_admin(username: str, email: str, password: str):
             id=str(_uuid.uuid4()),
             username=username,
             email=email,
-            hashed_password=hash_password(password),
+            hashed_password=await hash_password(password),
             role=Role.admin,
         )
         session.add(user)

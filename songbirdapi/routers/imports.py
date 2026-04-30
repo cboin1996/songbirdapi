@@ -49,7 +49,7 @@ async def _run_import(
     job_id: str, dest_path: str, ext: str, user_id: str, as_original: bool = False
 ) -> None:
     async with _import_semaphore:
-        async with database._session_factory() as db:
+        async with database.session_scope() as db:
             await crud.update_import_job(db, job_id, EditJobStatus.processing)
             try:
                 props = None

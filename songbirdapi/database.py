@@ -1,4 +1,5 @@
 import uuid as _uuid
+from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -46,15 +47,20 @@ async def dispose_engine():
     await _engine.dispose()
 
 
-async def get_db():
+@asynccontextmanager
+async def session_scope():
     # SQLAlchemy 2.0 async autobegins a transaction on the first query. On
-    # read-only routes (and on routes that error before a commit) nothing
+    # read-only paths (and on paths that error before a commit) nothing
     # commits or rolls back, so the underlying asyncpg connection returns
-    # to the pool 'idle in transaction'. Roll back on exit (in finally so
-    # it also fires when FastAPI exits the dependency via GeneratorExit).
+    # to the pool 'idle in transaction'. Roll back in finally to release.
     # No-op when a commit has already cleared the transaction.
     async with _session_factory() as session:
         try:
             yield session
         finally:
             await session.rollback()
+
+
+async def get_db():
+    async with session_scope() as session:
+        yield session

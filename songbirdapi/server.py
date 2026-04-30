@@ -77,7 +77,7 @@ app.include_router(version_router.router, prefix=_V1)
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     tb = traceback.format_exc()
-    async with database._session_factory() as session:
+    async with database.session_scope() as session:
         row = ErrorLog(
             id=str(uuid.uuid4()),
             level="error",

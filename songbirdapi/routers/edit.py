@@ -86,7 +86,7 @@ async def _run_edit_job(
     overwrite: bool,
     as_original: bool = False,
 ) -> None:
-    async with database._session_factory() as db:
+    async with database.session_scope() as db:
         await crud.update_edit_job(db, job_id, EditJobStatus.processing)
 
         source = await crud.get_song(db, source_song_id)

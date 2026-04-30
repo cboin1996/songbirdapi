@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import crud
+from ..database import session_scope
 from ..dependencies import get_current_user, get_db
 from ..models import User
 
@@ -70,21 +71,23 @@ async def get_share_info(token: str, db: AsyncSession = Depends(get_db)):
 async def get_share_artwork(
     token: str,
     size: Literal["thumb", "full"] = "full",
-    db: AsyncSession = Depends(get_db),
 ):
-    entry = await crud.get_share_token(db, token)
-    _validate_token(entry, token)
-    song = await crud.get_song(db, entry.song_id)
-    if not song:
-        raise HTTPException(status_code=404, detail="Song not found")
-    path = (
-        song.artwork_thumb
-        if size == "thumb"
-        else (song.artwork_full or song.artwork_thumb)
-    )
+    # Release session before serving the file — see get_download.
+    async with session_scope() as db:
+        entry = await crud.get_share_token(db, token)
+        _validate_token(entry, token)
+        song = await crud.get_song(db, entry.song_id)
+        if not song:
+            raise HTTPException(status_code=404, detail="Song not found")
+        path = (
+            song.artwork_thumb
+            if size == "thumb"
+            else (song.artwork_full or song.artwork_thumb)
+        )
+        itunes_url = (song.properties or {}).get("artworkUrl100", "")
+
     if path and os.path.exists(path):
         return FileResponse(path, media_type="image/jpeg")
-    itunes_url = (song.properties or {}).get("artworkUrl100", "")
     if itunes_url:
         target_size = "200x200bb" if size == "thumb" else "600x600bb"
         return RedirectResponse(
@@ -94,26 +97,28 @@ async def get_share_artwork(
 
 
 @router.get("/{token}/download")
-async def download_shared(
-    token: str, request: Request, db: AsyncSession = Depends(get_db)
-):
-    entry = await crud.get_share_token(db, token)
-    _validate_token(entry, token)
-    song = await crud.get_song(db, entry.song_id)
-    if not song or not os.path.exists(song.file_path):
-        raise HTTPException(status_code=404, detail="Song not found")
+async def download_shared(token: str, request: Request):
+    # Release session before streaming — see get_download.
+    async with session_scope() as db:
+        entry = await crud.get_share_token(db, token)
+        _validate_token(entry, token)
+        song = await crud.get_song(db, entry.song_id)
+        if not song or not os.path.exists(song.file_path):
+            raise HTTPException(status_code=404, detail="Song not found")
+        file_path = song.file_path
+        properties = song.properties or {}
 
-    file_size = os.path.getsize(song.file_path)
-    media_type = mimetypes.guess_type(song.file_path)[0] or "audio/mpeg"
-    track_name = (song.properties or {}).get("trackName", "song")
-    artist_name = (song.properties or {}).get("artistName", "")
+    file_size = os.path.getsize(file_path)
+    media_type = mimetypes.guess_type(file_path)[0] or "audio/mpeg"
+    track_name = properties.get("trackName", "song")
+    artist_name = properties.get("artistName", "")
     filename = f"{track_name} - {artist_name}.mp3".replace("/", "-")
     disposition = f'attachment; filename="{filename}"'
     range_header = request.headers.get("range")
 
     if not range_header:
         return FileResponse(
-            song.file_path,
+            file_path,
             media_type=media_type,
             headers={"Accept-Ranges": "bytes", "Content-Disposition": disposition},
         )
@@ -135,7 +140,7 @@ async def download_shared(
     chunk_size = end - start + 1
 
     async def stream() -> AsyncGenerator[bytes, None]:
-        async with await anyio.open_file(song.file_path, "rb") as f:
+        async with await anyio.open_file(file_path, "rb") as f:
             await f.seek(start)
             remaining = chunk_size
             while remaining > 0:

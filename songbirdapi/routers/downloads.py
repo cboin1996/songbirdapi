@@ -1,3 +1,4 @@
+import asyncio
 import enum
 import logging
 import mimetypes
@@ -16,6 +17,7 @@ from songbirdcore import itunes, youtube
 from songbirdcore.models.itunes_api import ItunesApiSongModel
 
 from songbirdapi import crud
+from songbirdapi.database import session_scope
 from songbirdapi.models import ErrorLog, Song, User
 from ..dependencies import get_current_user, get_db, load_settings, process_song_url
 
@@ -79,7 +81,11 @@ async def download(
 
     song_id = str(uuid.uuid4())
     file_path = os.path.join(config.downloads_dir, song_id)
-    file_path = youtube.run_download(
+    # yt-dlp can run for tens of seconds; offload to a thread so the event
+    # loop stays responsive (otherwise other requests stall and the
+    # sqlalchemy QueuePool exhausts under any concurrency).
+    file_path = await asyncio.to_thread(
+        youtube.run_download,
         url=url,
         file_path_no_format=file_path,
         file_format=body.file_format,
@@ -144,20 +150,26 @@ async def download(
 
 
 @router.get("/{id}")
-async def get_download(id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    song = await crud.get_song(db, id)
-    if not song or not os.path.exists(song.file_path):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Song {id} not found"
-        )
+async def get_download(id: str, request: Request):
+    # Release the DB session BEFORE returning the streaming response.
+    # FastAPI keeps Depends(get_db) connections open until the response
+    # body finishes streaming — for audio that's seconds per request.
+    # Read the metadata, capture the file path, exit the session, then stream.
+    async with session_scope() as db:
+        song = await crud.get_song(db, id)
+        if not song or not os.path.exists(song.file_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=f"Song {id} not found"
+            )
+        file_path = song.file_path
 
-    file_size = os.path.getsize(song.file_path)
-    media_type = mimetypes.guess_type(song.file_path)[0] or "audio/mpeg"
+    file_size = os.path.getsize(file_path)
+    media_type = mimetypes.guess_type(file_path)[0] or "audio/mpeg"
     range_header = request.headers.get("range")
 
     if not range_header:
         return FileResponse(
-            song.file_path, media_type=media_type, headers={"Accept-Ranges": "bytes"}
+            file_path, media_type=media_type, headers={"Accept-Ranges": "bytes"}
         )
 
     match = re.match(r"bytes=(\d+)-(\d*)", range_header)
@@ -177,7 +189,7 @@ async def get_download(id: str, request: Request, db: AsyncSession = Depends(get
     chunk_size = end - start + 1
 
     async def stream() -> AsyncGenerator[bytes, None]:
-        async with await anyio.open_file(song.file_path, "rb") as f:
+        async with await anyio.open_file(file_path, "rb") as f:
             await f.seek(start)
             remaining = chunk_size
             while remaining > 0:

@@ -18,3 +18,8 @@ async def get_version():
         "api_version": _get_version("songbirdapi"),
         "core_version": _get_version("songbirdcore"),
     }
+
+
+@router.get("/health")
+async def health():
+    return {"status": "ok"}

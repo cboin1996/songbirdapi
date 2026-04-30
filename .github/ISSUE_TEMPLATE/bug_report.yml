@@ -1,0 +1,88 @@
+name: Bug report
+description: Something is broken in the songbird API backend
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! The more context you give, the faster we can fix it.
+
+  - type: input
+    id: api-version
+    attributes:
+      label: songbirdapi version
+      description: Output of `GET /v1/version` or the docker image tag you're running
+      placeholder: "v0.0.9"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Where is the API running?
+      options:
+        - "Production (keebox / songbird.kee-flix.com)"
+        - "Local dev (uvicorn --reload)"
+        - "Local Docker"
+        - "Self-hosted Docker"
+        - "Other"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: Only required for local dev / self-hosted
+      placeholder: "3.13.1"
+
+  - type: input
+    id: endpoint
+    attributes:
+      label: Endpoint + method
+      placeholder: "POST /v1/import"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include the response status and body. Redact secrets.
+      placeholder: "Got 500. Response body: {\"detail\":\"...\"}"
+    validations:
+      required: true
+
+  - type: textarea
+    id: request
+    attributes:
+      label: Request that triggered it
+      description: Method, headers (no auth tokens), body. Or a curl command.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: server-logs
+    attributes:
+      label: Server logs / traceback
+      description: For self-hosters — `docker logs songbirdapi` around the time of the error
+      render: shell
+
+  - type: dropdown
+    id: reproducible
+    attributes:
+      label: Reproducibility
+      options:
+        - "Every time"
+        - "Sometimes / flaky"
+        - "Once"
+    validations:
+      required: true

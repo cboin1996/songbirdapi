@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a new endpoint or capability
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      placeholder: "I need to do X but the API doesn't expose Y..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed endpoint or behavior
+      description: Method + path + request/response shape if you have a concrete idea
+      placeholder: "GET /v1/foo/bar — returns list of ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds with the existing API?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Affected area
+      options:
+        - "Auth / users"
+        - "Library / songs"
+        - "Downloads"
+        - "Imports"
+        - "Editor / edit jobs"
+        - "Properties / tagging"
+        - "Sharing"
+        - "Playlists"
+        - "Player state"
+        - "Admin"
+        - "Cross-cutting"

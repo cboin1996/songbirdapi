@@ -51,9 +51,9 @@ async def test_read_endpoint_releases_connection_after_response(
     # flight when this line runs the next time, but with no in-flight
     # request the count must equal baseline.
     await asyncio.sleep(0.05)
-    assert _checkedout() == baseline, (
-        f"connection leaked: baseline={baseline}, after 50 reads={_checkedout()}"
-    )
+    assert (
+        _checkedout() == baseline
+    ), f"connection leaked: baseline={baseline}, after 50 reads={_checkedout()}"
 
 
 async def test_write_endpoint_releases_connection_after_response(
@@ -65,9 +65,7 @@ async def test_write_endpoint_releases_connection_after_response(
     baseline = _checkedout()
     for _ in range(20):
         # Add then remove — idempotent loop, doesn't leak rows.
-        r1 = await test_client.post(
-            f"/v1/library/{sample_song.uuid}", cookies=cookies
-        )
+        r1 = await test_client.post(f"/v1/library/{sample_song.uuid}", cookies=cookies)
         assert r1.status_code == 201
         r2 = await test_client.delete(
             f"/v1/library/{sample_song.uuid}", cookies=cookies
@@ -86,9 +84,7 @@ async def test_endpoint_raising_404_releases_connection(
     cookies = await _login(test_client, regular_user)
     baseline = _checkedout()
     for _ in range(50):
-        resp = await test_client.get(
-            "/v1/songs/does-not-exist-xyz", cookies=cookies
-        )
+        resp = await test_client.get("/v1/songs/does-not-exist-xyz", cookies=cookies)
         assert resp.status_code == 404
     await asyncio.sleep(0.05)
     assert _checkedout() == baseline

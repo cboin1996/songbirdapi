@@ -138,9 +138,7 @@ async def _run_edit_job(
                 await asyncio.to_thread(_retag_file, dest_path, merged_props)
             async with database.session_scope() as db:
                 if merged_props is not None:
-                    await crud.update_song_properties(
-                        db, source_song_id, merged_props
-                    )
+                    await crud.update_song_properties(db, source_song_id, merged_props)
                     if source_owner_id == user_id and crud._is_publish_eligible(
                         merged_props, artwork_cached=source_artwork_thumb is not None
                     ):
@@ -162,7 +160,9 @@ async def _run_edit_job(
         dest_path = os.path.join(_config.downloads_dir, f"{new_uuid}.mp3")
         try:
             await apply_edits(root_file_path, dest_path, params)
-            final_props = merged_props if merged_props is not None else source_properties
+            final_props = (
+                merged_props if merged_props is not None else source_properties
+            )
             if merged_props is not None:
                 await asyncio.to_thread(_retag_file, dest_path, merged_props)
             async with database.session_scope() as db:

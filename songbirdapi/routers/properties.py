@@ -180,7 +180,9 @@ async def put_properties(
     async with session_scope() as db:
         song = await crud.get_song(db, body.song_id)
         if not song:
-            msg = f"Cannot tag song w/ id {body.song_id}, it has not been downloaded yet!"
+            msg = (
+                f"Cannot tag song w/ id {body.song_id}, it has not been downloaded yet!"
+            )
             logger.error(msg)
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=msg)
         if not os.path.exists(song.file_path):

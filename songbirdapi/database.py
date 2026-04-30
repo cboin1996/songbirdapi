@@ -11,17 +11,26 @@ _session_factory = None
 
 def init_engine(dsn: str):
     global _engine, _session_factory
-    # Plain pool config. Earlier defensive options (pool_pre_ping=True,
-    # pool_recycle=300, idle_in_transaction_session_timeout=30000) raced
-    # each other under load and produced "asyncpg.InternalClientError:
-    # cannot switch to state 15" — the pool was handing out connections
-    # while pg or pre_ping was mid-recycle. session_scope's finally
-    # rollback handles the original leak; we trust that.
+    # Pool defenses (carefully chosen to avoid the "cannot switch to state 15"
+    # race that bit us when all three were on AND pool_pre_ping was issuing
+    # SELECT 1 mid-recycle):
+    #
+    # - pool_pre_ping is OFF — it was the racer.
+    # - pool_recycle=600 — sqlalchemy itself ages out connections every 10 min.
+    #   Catches sessions that leaked because FastAPI didn't advance our
+    #   dependency generator on client disconnect (browser closes mid-request).
+    # - idle_in_transaction_session_timeout=120s on the pg side — pg terminates
+    #   any backend stuck "idle in transaction" longer than that, so leaks
+    #   self-heal even if sqlalchemy doesn't notice.
     _engine = create_async_engine(
         dsn,
         echo=False,
         pool_size=20,
         max_overflow=10,
+        pool_recycle=600,
+        connect_args={
+            "server_settings": {"idle_in_transaction_session_timeout": "120000"},
+        },
     )
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 

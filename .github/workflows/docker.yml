@@ -74,11 +74,22 @@ jobs:
             set -e
             docker system prune -f
             cd ~/songbird
+            # Pull explicitly + force-recreate. docker-compose up -d alone
+            # can skip recreating if it thinks the image hasn't changed
+            # (manifest-vs-cache races against a fresh push), which leaves
+            # the old container running. force-recreate guarantees we get
+            # the new image.
             docker-compose pull songbirdapi
             docker-compose run --rm --entrypoint alembic songbirdapi upgrade head
-            docker-compose up -d songbirdapi
+            docker-compose up -d --force-recreate songbirdapi
+            healthy=
             for i in $(seq 1 30); do
-              docker-compose exec -T songbirdapi curl -sf http://localhost:8000/v1/health && echo "healthy" && break
+              if docker-compose exec -T songbirdapi curl -sf http://localhost:8000/v1/health; then
+                healthy=1
+                echo "healthy"
+                break
+              fi
               sleep 3
             done
+            [ "$healthy" = "1" ] || (echo "deploy health-check FAILED" && docker-compose logs --tail=50 songbirdapi && exit 1)
           ENDSSH

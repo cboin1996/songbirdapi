@@ -4,8 +4,6 @@ import uuid
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 from songbirdapi import crud, database
 from songbirdapi.database import get_db
 from songbirdapi.models import Base, Role, Song, User
@@ -31,15 +29,14 @@ def pytest_collection_modifyitems(config, items):
 
 # One engine created at import time (sync, no event loop required).
 # Overriding get_db means both fixtures and app routes share this engine/pool.
+# Use database.init_engine so the integration suite exercises the SAME pool
+# config (size/recycle/server_settings) as production — otherwise the pool
+# tests in test_pool.py would validate sqlalchemy defaults instead of
+# what we actually ship.
 _config = SongbirdServerConfig()  # pyright: ignore
-_engine = create_async_engine(_config.postgres_dsn)
-_TestingSession = async_sessionmaker(_engine, expire_on_commit=False)
-
-# Initialize the module-level session factory so background tasks (edit/imports)
-# and the unhandled-exception handler in server.py can open sessions even though
-# the FastAPI lifespan never runs under ASGITransport.
-database._engine = _engine
-database._session_factory = _TestingSession
+database.init_engine(_config.postgres_dsn)
+_engine = database._engine
+_TestingSession = database._session_factory
 
 
 async def _override_get_db():

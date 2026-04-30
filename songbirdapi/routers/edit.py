@@ -1,3 +1,4 @@
+import asyncio
 import os
 import shutil
 import uuid as _uuid
@@ -86,6 +87,10 @@ async def _run_edit_job(
     overwrite: bool,
     as_original: bool = False,
 ) -> None:
+    # Sessions are scoped tightly here: setup-read → release → ffmpeg/tag IO →
+    # finalize-write. Earlier this whole job ran inside one session_scope,
+    # which pinned a pool connection for the entire ffmpeg duration
+    # (seconds-minutes) and saturated the pool under concurrent edits.
     async with database.session_scope() as db:
         await crud.update_edit_job(db, job_id, EditJobStatus.processing)
 
@@ -106,18 +111,38 @@ async def _run_edit_job(
             ):
                 merged_props["collectionId"] = str(merged_props["collectionId"])
 
-        if overwrite:
-            dest_path = source.file_path
-            base, ext = os.path.splitext(dest_path)
-            tmp_path = f"{base}_tmp{ext}"
-            try:
-                await apply_edits(source.file_path, tmp_path, params)
-                os.replace(tmp_path, dest_path)
+        # Snapshot what we need post-IO so the session can be released.
+        source_file_path = source.file_path
+        source_uuid = source.uuid
+        source_url = source.url
+        source_owner_id = source.owner_id
+        source_artwork_thumb = source.artwork_thumb
+        source_artwork_full = source.artwork_full
+        source_parent_song_id = source.parent_song_id
+        source_properties = source.properties
+        root_id = source.root_song_id or source.uuid
+        if not overwrite and root_id != source_uuid:
+            root = await crud.get_song(db, root_id)
+            root_file_path = root.file_path if root else source_file_path
+        else:
+            root_file_path = source_file_path
+
+    if overwrite:
+        dest_path = source_file_path
+        base, ext = os.path.splitext(dest_path)
+        tmp_path = f"{base}_tmp{ext}"
+        try:
+            await apply_edits(source_file_path, tmp_path, params)
+            os.replace(tmp_path, dest_path)
+            if merged_props is not None:
+                await asyncio.to_thread(_retag_file, dest_path, merged_props)
+            async with database.session_scope() as db:
                 if merged_props is not None:
-                    _retag_file(dest_path, merged_props)
-                    await crud.update_song_properties(db, source_song_id, merged_props)
-                    if source.owner_id == user_id and crud._is_publish_eligible(
-                        merged_props, artwork_cached=source.artwork_thumb is not None
+                    await crud.update_song_properties(
+                        db, source_song_id, merged_props
+                    )
+                    if source_owner_id == user_id and crud._is_publish_eligible(
+                        merged_props, artwork_cached=source_artwork_thumb is not None
                     ):
                         await crud.publish_song(
                             db, source_song_id, as_original=as_original
@@ -125,35 +150,29 @@ async def _run_edit_job(
                 await crud.update_edit_job(
                     db, job_id, EditJobStatus.done, result_song_id=source_song_id
                 )
-            except Exception as exc:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+        except Exception as exc:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            async with database.session_scope() as db:
                 await crud.update_edit_job(
                     db, job_id, EditJobStatus.failed, error=str(exc)
                 )
-        else:
-            # Always edit from the root original to avoid compounding generation loss.
-            root_id = source.root_song_id or source.uuid
-            root = (
-                await crud.get_song(db, root_id) if root_id != source.uuid else source
-            )
-
-            new_uuid = str(_uuid.uuid4())
-            dest_path = os.path.join(_config.downloads_dir, f"{new_uuid}.mp3")
-            try:
-                await apply_edits(root.file_path, dest_path, params)
-                final_props = (
-                    merged_props if merged_props is not None else source.properties
-                )
-                if merged_props is not None:
-                    _retag_file(dest_path, merged_props)
+    else:
+        new_uuid = str(_uuid.uuid4())
+        dest_path = os.path.join(_config.downloads_dir, f"{new_uuid}.mp3")
+        try:
+            await apply_edits(root_file_path, dest_path, params)
+            final_props = merged_props if merged_props is not None else source_properties
+            if merged_props is not None:
+                await asyncio.to_thread(_retag_file, dest_path, merged_props)
+            async with database.session_scope() as db:
                 new_song = Song(
                     uuid=new_uuid,
-                    url=source.url,
+                    url=source_url,
                     file_path=dest_path,
                     properties=final_props,
-                    artwork_thumb=source.artwork_thumb,
-                    artwork_full=source.artwork_full,
+                    artwork_thumb=source_artwork_thumb,
+                    artwork_full=source_artwork_full,
                     parent_song_id=source_song_id,
                     root_song_id=root_id,
                     owner_id=user_id,
@@ -166,24 +185,25 @@ async def _run_edit_job(
 
                 # Enforce 2-edit cap: delete the old grandparent (pre-last-save) if it
                 # is not the root and has no other library references.
-                if source.parent_song_id and source.parent_song_id != root_id:
+                if source_parent_song_id and source_parent_song_id != root_id:
                     if (
-                        await crud.library_ref_count(db, source.parent_song_id) == 0
-                        and await crud.child_ref_count(db, source.parent_song_id) == 0
+                        await crud.library_ref_count(db, source_parent_song_id) == 0
+                        and await crud.child_ref_count(db, source_parent_song_id) == 0
                     ):
-                        await crud.delete_song(db, source.parent_song_id)
+                        await crud.delete_song(db, source_parent_song_id)
 
                 await crud.add_to_library(db, user_id, new_uuid)
                 if merged_props is not None and crud._is_publish_eligible(
-                    merged_props, artwork_cached=source.artwork_thumb is not None
+                    merged_props, artwork_cached=source_artwork_thumb is not None
                 ):
                     await crud.publish_song(db, new_uuid, as_original=as_original)
                 await crud.update_edit_job(
                     db, job_id, EditJobStatus.done, result_song_id=new_uuid
                 )
-            except Exception as exc:
-                if os.path.exists(dest_path):
-                    os.remove(dest_path)
+        except Exception as exc:
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            async with database.session_scope() as db:
                 await crud.update_edit_job(
                     db, job_id, EditJobStatus.failed, error=str(exc)
                 )

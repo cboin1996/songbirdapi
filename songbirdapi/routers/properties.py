@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from typing import Annotated, List, Optional, Union
@@ -12,6 +13,7 @@ from songbirdcore.models.modes import Modes
 
 from songbirdapi import crud
 from ..crud import _is_publish_eligible, _get_missing_fields
+from ..database import session_scope
 from ..dependencies import get_current_user, get_db, load_settings
 from ..models import Role, User
 
@@ -168,40 +170,46 @@ async def _cache_artwork(song_id: str, itunes_url: str) -> None:
 async def put_properties(
     body: TagBody,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TagResponse:
-    song = await crud.get_song(db, body.song_id)
-    if not song:
-        msg = f"Cannot tag song w/ id {body.song_id}, it has not been downloaded yet!"
-        logger.error(msg)
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=msg)
-    if not os.path.exists(song.file_path):
-        msg = f"Cannot tag file {song.file_path}, file does not exist"
-        logger.error(msg)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=msg
-        )
+    # Open session only for the initial read, release before sync file
+    # tagging (mp3ID3Tagger/m4a_tagger are blocking IO), then re-open for
+    # the writes. Holding a session across blocking tagger calls pins a
+    # pool connection for hundreds of ms per save and exhausts the pool
+    # under concurrent edits.
+    async with session_scope() as db:
+        song = await crud.get_song(db, body.song_id)
+        if not song:
+            msg = f"Cannot tag song w/ id {body.song_id}, it has not been downloaded yet!"
+            logger.error(msg)
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=msg)
+        if not os.path.exists(song.file_path):
+            msg = f"Cannot tag file {song.file_path}, file does not exist"
+            logger.error(msg)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=msg
+            )
+        file_path = song.file_path
+        existing_artwork_url = (song.properties or {}).get("artworkUrl100", "")
+
     artwork_url = body.properties.artworkUrl100 or ""
     if not artwork_url.startswith("http"):
-        artwork_url = (song.properties or {}).get("artworkUrl100", "")
+        artwork_url = existing_artwork_url
 
-    ext = os.path.splitext(song.file_path)[1].lower()
+    ext = os.path.splitext(file_path)[1].lower()
     if artwork_url.startswith("http"):
         props_for_tagging = body.properties.model_copy(
             update={"artworkUrl100": artwork_url}
         )
-        result = (
-            itunes.mp3ID3Tagger(song.file_path, props_for_tagging)
-            if ext == ".mp3"
-            else itunes.m4a_tagger(song.file_path, props_for_tagging)
-        )
+        tagger = itunes.mp3ID3Tagger if ext == ".mp3" else itunes.m4a_tagger
+        result = await asyncio.to_thread(tagger, file_path, props_for_tagging)
     else:
-        result = (
-            itunes.mp3ID3TaggerNoArtwork(song.file_path, body.properties)
+        tagger = (
+            itunes.mp3ID3TaggerNoArtwork
             if ext == ".mp3"
-            else itunes.m4aID3TaggerNoArtwork(song.file_path, body.properties)
+            else itunes.m4aID3TaggerNoArtwork
         )
+        result = await asyncio.to_thread(tagger, file_path, body.properties)
 
     if not result:
         raise HTTPException(
@@ -211,20 +219,23 @@ async def put_properties(
 
     props = body.properties.model_dump()
     props["collectionId"] = str(props["collectionId"])
-    await crud.update_song_properties(db, body.song_id, props)
+
+    async with session_scope() as db:
+        await crud.update_song_properties(db, body.song_id, props)
+        song = await crud.get_song(db, body.song_id)
+        if (
+            song
+            and song.owner_id == current_user.id
+            and _is_publish_eligible(
+                props, artwork_cached=song.artwork_thumb is not None
+            )
+        ):
+            as_original = body.as_original and current_user.role == Role.admin
+            await crud.publish_song(db, body.song_id, as_original=as_original)
 
     if body.properties.artworkUrl100:
         background_tasks.add_task(
             _cache_artwork, body.song_id, body.properties.artworkUrl100
         )
-
-    song = await crud.get_song(db, body.song_id)
-    if (
-        song
-        and song.owner_id == current_user.id
-        and _is_publish_eligible(props, artwork_cached=song.artwork_thumb is not None)
-    ):
-        as_original = body.as_original and current_user.role == Role.admin
-        await crud.publish_song(db, body.song_id, as_original=as_original)
 
     return TagResponse(song_id=body.song_id)

@@ -199,7 +199,6 @@ async def start_import(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     as_original: bool = Query(default=False),
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ImportJobResponse:
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -214,15 +213,21 @@ async def start_import(
     new_uuid = str(uuid.uuid4())
     dest_path = os.path.join(_config.downloads_dir, f"{new_uuid}{ext}")
 
+    # Read upload body and write to disk WITHOUT holding a DB session — large
+    # uploads otherwise pin a pool connection for the duration of the body
+    # transfer, which exhausts the pool under concurrent imports.
     content = await file.read()
     with open(dest_path, "wb") as f:
         f.write(content)
 
-    job = await crud.create_import_job(db, current_user.id, file.filename or "")
+    async with database.session_scope() as db:
+        job = await crud.create_import_job(db, current_user.id, file.filename or "")
+        job_id = job.id
+        job_status = job.status.value
     background_tasks.add_task(
-        _run_import, job.id, dest_path, ext, current_user.id, as_original
+        _run_import, job_id, dest_path, ext, current_user.id, as_original
     )
-    return ImportJobResponse(job_id=job.id, status=job.status.value)
+    return ImportJobResponse(job_id=job_id, status=job_status)
 
 
 @router.get("/{job_id}")

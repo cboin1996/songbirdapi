@@ -219,18 +219,20 @@ async def get_artwork(
 async def upload_artwork(
     id: str,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    song = await crud.get_song(db, id)
-    if not song:
-        raise HTTPException(status_code=404, detail="Song not found")
-    if (
-        song.owner_id
-        and song.owner_id != current_user.id
-        and current_user.role.value != "admin"
-    ):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    # Authorization check first, then release session before reading body and
+    # storing artwork so we don't pin a pool connection during the upload.
+    async with session_scope() as db:
+        song = await crud.get_song(db, id)
+        if not song:
+            raise HTTPException(status_code=404, detail="Song not found")
+        if (
+            song.owner_id
+            and song.owner_id != current_user.id
+            and current_user.role.value != "admin"
+        ):
+            raise HTTPException(status_code=403, detail="Forbidden")
 
     MAX_ARTWORK_BYTES = 10 * 1024 * 1024  # 10 MB
     if file.size is not None and file.size > MAX_ARTWORK_BYTES:
@@ -251,6 +253,8 @@ async def upload_artwork(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    await crud.update_song_artwork(db, id, thumb_path, full_path)
+
+    async with session_scope() as db:
+        await crud.update_song_artwork(db, id, thumb_path, full_path)
 
     return {"ok": True}

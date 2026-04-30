@@ -167,9 +167,17 @@ async def get_download(id: str, request: Request):
     media_type = mimetypes.guess_type(file_path)[0] or "audio/mpeg"
     range_header = request.headers.get("range")
 
+    # Cache-Control: no-store — the editor mounts 3 WaveSurfer/buffer
+    # consumers in parallel that all GET this same URL. Chromium's HTTP
+    # cache races on concurrent same-URL writes (ERR_CACHE_WRITE_FAILURE)
+    # and the lost fetches break WaveSurfer.load(), which leaves the
+    # editor's preview button permanently disabled. no-store skips the
+    # cache write entirely.
     if not range_header:
         return FileResponse(
-            file_path, media_type=media_type, headers={"Accept-Ranges": "bytes"}
+            file_path,
+            media_type=media_type,
+            headers={"Accept-Ranges": "bytes", "Cache-Control": "no-store"},
         )
 
     match = re.match(r"bytes=(\d+)-(\d*)", range_header)
@@ -207,6 +215,7 @@ async def get_download(id: str, request: Request):
             "Content-Range": f"bytes {start}-{end}/{file_size}",
             "Accept-Ranges": "bytes",
             "Content-Length": str(chunk_size),
+            "Cache-Control": "no-store",
         },
     )
 

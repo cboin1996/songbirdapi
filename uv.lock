@@ -1741,7 +1741,7 @@ wheels = [
 
 [[package]]
 name = "songbirdapi"
-version = "0.0.9"
+version = "0.0.10"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -1799,7 +1799,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "songbirdcore"
-version = "0.1.9"
+version = "0.1.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -1818,9 +1818,9 @@ dependencies = [
     { name = "requests-htmlc" },
     { name = "yt-dlp", extra = ["default"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d1/d5/bce32dee7adf494d946cc0792077061f7531dd435a832e014a230508c0b4/songbirdcore-0.1.9.tar.gz", hash = "sha256:3a00a691d147d849a3fa5827b022f2cb4557f3c59ad28101e310d851b0d0b974", size = 435010, upload-time = "2026-04-29T05:27:57.515Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/50/fb/1ec323fef7326999ac7f2aeb377f971cc5d1120c71cdae4fe17234fe97c4/songbirdcore-0.1.10.tar.gz", hash = "sha256:61cd0407a3bea75a73050af2982af773182d6fa0170b7b39416129b7fac00c25", size = 436408, upload-time = "2026-04-30T15:32:51.619Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/14/70/a525b8b6669b201b466484ce77b6f4d69a71bffcb1f3c4cd50a2e524dc1e/songbirdcore-0.1.9-py3-none-any.whl", hash = "sha256:b5c43dc7260f5bd76cf76ea95267b15d93ab8b05fca6e944996479dee5b2f67d", size = 316458, upload-time = "2026-04-29T05:27:56.072Z" },
+    { url = "https://files.pythonhosted.org/packages/af/12/c1e1acc297c95ab37875f0e752abda905f796bec99551cc05485ad4baaf1/songbirdcore-0.1.10-py3-none-any.whl", hash = "sha256:cd2f87a12b1fd7aeb5329d8206ec8cc4280839530b02c68be5e57c1c46a79faf", size = 316468, upload-time = "2026-04-30T15:32:50.184Z" },
 ]
 
 [[package]]

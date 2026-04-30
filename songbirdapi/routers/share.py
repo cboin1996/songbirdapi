@@ -2,11 +2,11 @@ import mimetypes
 import os
 import re
 from datetime import datetime, timezone
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Literal
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,6 +64,33 @@ async def get_share_info(token: str, db: AsyncSession = Depends(get_db)):
         song_id=song.uuid,
         properties=song.properties,
     )
+
+
+@router.get("/{token}/artwork/{size}")
+async def get_share_artwork(
+    token: str,
+    size: Literal["thumb", "full"] = "full",
+    db: AsyncSession = Depends(get_db),
+):
+    entry = await crud.get_share_token(db, token)
+    _validate_token(entry, token)
+    song = await crud.get_song(db, entry.song_id)
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    path = (
+        song.artwork_thumb
+        if size == "thumb"
+        else (song.artwork_full or song.artwork_thumb)
+    )
+    if path and os.path.exists(path):
+        return FileResponse(path, media_type="image/jpeg")
+    itunes_url = (song.properties or {}).get("artworkUrl100", "")
+    if itunes_url:
+        target_size = "200x200bb" if size == "thumb" else "600x600bb"
+        return RedirectResponse(
+            url=itunes_url.replace("100x100bb", target_size), status_code=302
+        )
+    raise HTTPException(status_code=404, detail="Artwork not cached")
 
 
 @router.get("/{token}/download")

@@ -1,4 +1,5 @@
 import uuid as _uuid
+from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -10,8 +11,17 @@ _session_factory = None
 
 def init_engine(dsn: str):
     global _engine, _session_factory
+    # Plain pool config. Earlier defensive options (pool_pre_ping=True,
+    # pool_recycle=300, idle_in_transaction_session_timeout=30000) raced
+    # each other under load and produced "asyncpg.InternalClientError:
+    # cannot switch to state 15" — the pool was handing out connections
+    # while pg or pre_ping was mid-recycle. session_scope's finally
+    # rollback handles the original leak; we trust that.
     _engine = create_async_engine(
-        dsn, echo=False, pool_size=20, max_overflow=10, pool_pre_ping=True
+        dsn,
+        echo=False,
+        pool_size=20,
+        max_overflow=10,
     )
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 
@@ -35,7 +45,7 @@ async def seed_admin(username: str, email: str, password: str):
             id=str(_uuid.uuid4()),
             username=username,
             email=email,
-            hashed_password=hash_password(password),
+            hashed_password=await hash_password(password),
             role=Role.admin,
         )
         session.add(user)
@@ -46,6 +56,20 @@ async def dispose_engine():
     await _engine.dispose()
 
 
-async def get_db():
+@asynccontextmanager
+async def session_scope():
+    # SQLAlchemy 2.0 async autobegins a transaction on the first query. On
+    # read-only paths (and on paths that error before a commit) nothing
+    # commits or rolls back, so the underlying asyncpg connection returns
+    # to the pool 'idle in transaction'. Roll back in finally to release.
+    # No-op when a commit has already cleared the transaction.
     async with _session_factory() as session:
+        try:
+            yield session
+        finally:
+            await session.rollback()
+
+
+async def get_db():
+    async with session_scope() as session:
         yield session

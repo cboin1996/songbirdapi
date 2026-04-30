@@ -77,4 +77,8 @@ jobs:
             docker-compose pull songbirdapi
             docker-compose run --rm --entrypoint alembic songbirdapi upgrade head
             docker-compose up -d songbirdapi
+            for i in $(seq 1 30); do
+              docker-compose exec -T songbirdapi curl -sf http://localhost:8000/v1/health && echo "healthy" && break
+              sleep 3
+            done
           ENDSSH

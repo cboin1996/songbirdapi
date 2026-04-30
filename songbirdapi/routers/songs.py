@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..database import session_scope
 from ..dependencies import get_current_user, get_db, load_settings
 from ..models import User
 from .. import crud
@@ -182,23 +183,28 @@ async def record_play(
 async def get_artwork(
     id: str,
     size: Literal["thumb", "full"] = "full",
-    db: AsyncSession = Depends(get_db),
 ):
     from fastapi.responses import RedirectResponse
 
-    song = await crud.get_song(db, id)
-    if not song:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Song not found"
+    # Release the session before serving the file — see get_download in
+    # downloads.py for why (avoid pinning a DB connection for the whole
+    # streamed response, which exhausts the pool on a /library page that
+    # fans out 50+ artwork fetches in parallel).
+    async with session_scope() as db:
+        song = await crud.get_song(db, id)
+        if not song:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Song not found"
+            )
+        path = (
+            song.artwork_thumb
+            if size == "thumb"
+            else (song.artwork_full or song.artwork_thumb)
         )
-    path = (
-        song.artwork_thumb
-        if size == "thumb"
-        else (song.artwork_full or song.artwork_thumb)
-    )
+        itunes_url = (song.properties or {}).get("artworkUrl100", "")
+
     if path and os.path.exists(path):
         return FileResponse(path, media_type="image/jpeg")
-    itunes_url = (song.properties or {}).get("artworkUrl100", "")
     if itunes_url:
         target_size = "200x200bb" if size == "thumb" else "600x600bb"
         return RedirectResponse(

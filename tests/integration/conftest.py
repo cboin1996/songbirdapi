@@ -80,7 +80,7 @@ async def admin_user(test_client):
             id=str(uuid.uuid4()),
             username=f"testadmin_{uuid.uuid4().hex[:6]}",
             email=f"testadmin_{uuid.uuid4().hex[:6]}@test.com",
-            hashed_password=hash_password("testpass123"),
+            hashed_password=await hash_password("testpass123"),
             role=Role.admin,
         )
         await crud.create_user(db, user)
@@ -96,7 +96,7 @@ async def regular_user(test_client):
             id=str(uuid.uuid4()),
             username=f"testuser_{uuid.uuid4().hex[:6]}",
             email=f"testuser_{uuid.uuid4().hex[:6]}@test.com",
-            hashed_password=hash_password("testpass123"),
+            hashed_password=await hash_password("testpass123"),
             role=Role.user,
         )
         await crud.create_user(db, user)

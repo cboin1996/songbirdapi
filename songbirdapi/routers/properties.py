@@ -156,11 +156,11 @@ class TagBody(BaseModel):
 
 async def _cache_artwork(song_id: str, itunes_url: str) -> None:
     from ..artwork import fetch_and_store_artwork
-    from ..database import _session_factory
+    from ..database import session_scope
 
     thumb, full = await fetch_and_store_artwork(song_id, itunes_url, config.artwork_dir)
     if thumb or full:
-        async with _session_factory() as db:
+        async with session_scope() as db:
             await crud.update_song_artwork(db, song_id, thumb, full)
 
 

@@ -55,7 +55,7 @@ async def login(
     body: LoginBody, response: Response, db: AsyncSession = Depends(get_db)
 ):
     user = await crud.get_user_by_username(db, body.username)
-    if not user or not verify_password(body.password, user.hashed_password):
+    if not user or not await verify_password(body.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )
@@ -126,7 +126,7 @@ async def register(
         id=str(uuid.uuid4()),
         username=body.username,
         email=body.email,
-        hashed_password=hash_password(body.password),
+        hashed_password=await hash_password(body.password),
         role=body.role,
     )
     await crud.create_user(db, user)
@@ -149,9 +149,9 @@ async def change_password(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not verify_password(body.current_password, current_user.hashed_password):
+    if not await verify_password(body.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password"
         )
-    current_user.hashed_password = hash_password(body.new_password)
+    current_user.hashed_password = await hash_password(body.new_password)
     await db.commit()

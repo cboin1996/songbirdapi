@@ -1,8 +1,10 @@
 import os
 import sys
+from pathlib import Path
 from pydantic_settings import BaseSettings
-import sys
 from typing import List
+
+_PROJECT_ROOT = Path(__file__).parent.parent
 
 
 class SongbirdServerConfig(BaseSettings):
@@ -11,17 +13,27 @@ class SongbirdServerConfig(BaseSettings):
     version: str = ""
     root_path: str = sys.path[0]
     downloads_dir: str = os.path.join(root_path, "data", "downloads")
-    dirs: List[str] = [downloads_dir]
+    artwork_dir: str = os.path.join(root_path, "data", "artwork")
+    dirs: List[str] = [downloads_dir, artwork_dir]
     api_key: str
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_song_index_name: str = "idx:songs"
-    redis_song_index_prefix: str = "properties"
-    redis_song_url_prefix: str = "song-url"
+    jwt_secret: str
+    cors_origins: str = "http://localhost:3000"
+    admin_username: str = ""
+    admin_email: str = ""
+    admin_password: str = ""
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    postgres_db: str = "songbirdapi"
+    postgres_user: str = "songbirdapi"
+    postgres_password: str
+
+    @property
+    def postgres_dsn(self) -> str:
+        return (
+            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
 
     class Config:
-        config_path = os.path.join(
-            os.path.dirname(sys.path[0]), f"{os.getenv("ENV", "")}.env"
-        )
-        env_file = config_path
+        env_file = str(_PROJECT_ROOT / f"{os.getenv('ENV', '')}.env")
         env_file_encoding = "utf-8"

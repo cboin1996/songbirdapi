@@ -28,7 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 COPY --from=builder /songbirdapi/.venv /songbirdapi/.venv
 COPY ./songbirdapi/ ./songbirdapi
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock alembic.ini ./
+COPY ./migrations/ ./migrations
 
 ENV PATH="/songbirdapi/.venv/bin:$PATH"
 

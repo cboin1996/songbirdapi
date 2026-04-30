@@ -1,0 +1,20 @@
+services:
+  songbirdapi:
+    image: cboin/songbirdapi:latest
+    restart: unless-stopped
+    ports:
+      - "9669:8000"
+    volumes:
+      - ./data:/songbirdapi/data
+    environment:
+      - API_KEY=${API_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}

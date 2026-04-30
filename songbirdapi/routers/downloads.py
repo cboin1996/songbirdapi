@@ -1,33 +1,34 @@
 import enum
-from http import HTTPStatus
-import json
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.logger import logger
-from typing import Any, List, Optional, Set, Union
-from fastapi.responses import FileResponse
-from songbirdcore import youtube
-from songbirdcore import itunes
-from songbirdcore.models.itunes_api import ItunesApiSongModel
-from pydantic import BaseModel, Json, ValidationError, field_serializer
-import uuid
-import os
-
-from songbirdapi.dbclient import RedisClient
-from ..settings import SongbirdServerConfig
-from ..dependencies import load_redis, load_settings, process_song_url
 import logging
+import mimetypes
+import os
+import re
+import uuid
+from typing import AsyncGenerator, Optional, Set
+
+import anyio
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.logger import logger
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+from songbirdcore import itunes, youtube
+from songbirdcore.models.itunes_api import ItunesApiSongModel
+
+from songbirdapi import crud
+from songbirdapi.models import ErrorLog, Song, User
+from ..dependencies import get_current_user, get_db, load_settings, process_song_url
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
 logger.handlers = uvicorn_logger.handlers
 logger.setLevel(uvicorn_logger.level)
 
-# add router for all songbird related api calls
 router = APIRouter(
     prefix="/download",
     tags=["download"],
+    dependencies=[Depends(get_current_user)],
 )
 config = load_settings()
-db = load_redis(config)
 
 
 class FileFormats(enum.StrEnum):
@@ -36,7 +37,7 @@ class FileFormats(enum.StrEnum):
 
 
 class DownloadBody(BaseModel):
-    url: str
+    url: str = Field(..., max_length=2048)
     ignore_cache: bool = False
     embed_thumbnail: bool = False
     file_format: FileFormats = FileFormats.mp3
@@ -45,6 +46,9 @@ class DownloadBody(BaseModel):
 
 class DownloadResponse(BaseModel):
     song_ids: Set[str]
+    cached: bool = False
+    properties: dict | None = None
+    artwork_cached: bool = False
 
 
 class DownloadCachedSong(BaseModel):
@@ -54,17 +58,24 @@ class DownloadCachedSong(BaseModel):
     uuid: str
 
 
-@router.post("/")
+@router.post("")
 async def download(
     body: DownloadBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> DownloadResponse:
-    # split off any playlists from youtube
-    # TODO: add logic to songbirdcore?
     url = process_song_url(body.url)
-    res = await db.smembers(config.redis_song_url_prefix, url)
-    if res and not body.ignore_cache:
-        logger.info(f"returning cached values {res}")
-        return DownloadResponse(song_ids=res)
+    existing = await crud.get_songs_by_url(db, url)
+    if existing and not body.ignore_cache:
+        logger.info(f"returning cached values {[s.uuid for s in existing]}")
+        for s in existing:
+            await crud.record_download(db, s.uuid, current_user.id)
+        return DownloadResponse(
+            song_ids={s.uuid for s in existing},
+            cached=True,
+            properties=existing[0].properties,
+            artwork_cached=existing[0].artwork_thumb is not None,
+        )
 
     song_id = str(uuid.uuid4())
     file_path = os.path.join(config.downloads_dir, song_id)
@@ -76,45 +87,123 @@ async def download(
     )
 
     if not file_path:
+        err = ErrorLog(
+            id=str(uuid.uuid4()),
+            level="error",
+            path="/download/",
+            method="POST",
+            status_code=500,
+            message=f"yt-dlp failed for url {url}",
+        )
+        db.add(err)
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Could not perform download of song at url {url}",
         )
 
-    # we store two ways to lookup, one mapping URL->song_id,
-    response = await db.sadd(config.redis_song_url_prefix, url, song_id)
-    # the other via uuid which
-    # stores more nested data about a song
-    uuid_cached_song = DownloadCachedSong(
-        url=url, file_path=file_path, uuid=song_id
-    ).model_dump(exclude_none=True)
-    response = await db.index(config.redis_song_index_prefix, song_id, uuid_cached_song)
+    song = Song(uuid=song_id, url=url, file_path=file_path)
+    await crud.insert_song(db, song)
+    await crud.record_download(db, song_id, current_user.id)
+
+    props = None
+    artwork_bytes = None
+    try:
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == ".mp3":
+            model, artwork_bytes = itunes.mp3_tag_reader(file_path)
+        elif ext == ".m4a":
+            model, artwork_bytes = itunes.m4a_tag_reader(file_path)
+        else:
+            model = None
+        if model:
+            props = model.model_dump()
+            props["collectionId"] = str(props["collectionId"])
+            await crud.update_song_properties(db, song_id, props)
+    except Exception:
+        pass
+
+    artwork_cached = False
+    if artwork_bytes:
+        from ..artwork import store_artwork_from_bytes
+
+        try:
+            thumb, full = await store_artwork_from_bytes(
+                song_id, artwork_bytes, config.artwork_dir
+            )
+            if thumb or full:
+                await crud.update_song_artwork(db, song_id, thumb, full)
+                artwork_cached = True
+        except Exception:
+            pass
+
     logger.info(f"returning downloaded song {song_id}")
-    return DownloadResponse(song_ids={song_id})
+    return DownloadResponse(
+        song_ids={song_id}, properties=props, artwork_cached=artwork_cached
+    )
 
 
 @router.get("/{id}")
-async def get_download(id: str):
-    res: Optional[DownloadCachedSong] = await db.index_get(
-        config.redis_song_index_prefix, id, DownloadCachedSong
-    )
-    if res and os.path.exists(res.file_path):
-        return FileResponse(res.file_path)
-    else:
+async def get_download(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    song = await crud.get_song(db, id)
+    if not song or not os.path.exists(song.file_path):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Could not find song with id {id}",
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Song {id} not found"
         )
+
+    file_size = os.path.getsize(song.file_path)
+    media_type = mimetypes.guess_type(song.file_path)[0] or "audio/mpeg"
+    range_header = request.headers.get("range")
+
+    if not range_header:
+        return FileResponse(
+            song.file_path, media_type=media_type, headers={"Accept-Ranges": "bytes"}
+        )
+
+    match = re.match(r"bytes=(\d+)-(\d*)", range_header)
+    if not match:
+        raise HTTPException(status_code=416, detail="Invalid Range header")
+
+    start = int(match.group(1))
+    end = int(match.group(2)) if match.group(2) else file_size - 1
+
+    if start >= file_size or end >= file_size or start > end:
+        raise HTTPException(
+            status_code=416,
+            headers={"Content-Range": f"bytes */{file_size}"},
+            detail="Range Not Satisfiable",
+        )
+
+    chunk_size = end - start + 1
+
+    async def stream() -> AsyncGenerator[bytes, None]:
+        async with await anyio.open_file(song.file_path, "rb") as f:
+            await f.seek(start)
+            remaining = chunk_size
+            while remaining > 0:
+                data = await f.read(min(65536, remaining))
+                if not data:
+                    break
+                remaining -= len(data)
+                yield data
+
+    return StreamingResponse(
+        stream(),
+        status_code=206,
+        media_type=media_type,
+        headers={
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(chunk_size),
+        },
+    )
 
 
 @router.delete("/{id}")
-async def delete_download(id: str):
-    res: Optional[DownloadCachedSong] = await db.index_get(
-        config.redis_song_index_prefix, id, DownloadCachedSong
-    )
-    file_path = os.path.join(config.downloads_dir, id)
-    if os.path.exists(file_path):
-        os.remove(file_path)
-    if res:
-        await db.srem(config.redis_song_url_prefix, res.url, id)
-    await db.delete(config.redis_song_index_prefix, id)
+async def delete_download(id: str, db: AsyncSession = Depends(get_db)):
+    if await crud.child_ref_count(db, id) > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Song has edited versions and cannot be deleted",
+        )
+    await crud.delete_song(db, id)

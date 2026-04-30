@@ -1,23 +1,55 @@
 import logging
-from fastapi import Depends, FastAPI
+import traceback
+import uuid
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
 from fastapi.logger import logger
 from fastapi.middleware.cors import CORSMiddleware
-import os
-from redis.commands.search.field import TextField, NumericField
-from redis.commands.search.index_definition import IndexDefinition, IndexType
+from fastapi.responses import JSONResponse
 
 from songbirdapi.dependencies import load_settings
 
-from .dbclient import RedisClient
-
-from .routers import properties, downloads, songs, auth
+from . import database
+from .models import ErrorLog
+from .routers import (
+    admin,
+    auth,
+    downloads,
+    edit,
+    imports,
+    library,
+    offline,
+    player,
+    playlists,
+    properties,
+    share,
+    songs,
+)
+from .routers import version as version_router
 from .version import version
-from .settings import SongbirdServerConfig
 
-app = FastAPI(dependencies=[Depends(auth.handle_api_key)])
+uvicorn_logger = logging.getLogger("uvicorn.error")
+logger.handlers = uvicorn_logger.handlers
+logger.setLevel(uvicorn_logger.level)
 
-# TODO: cors configuration
-origins = ["*"]
+_settings = load_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    database.init_engine(_settings.postgres_dsn)
+    await database.create_schema()
+    await database.seed_admin(
+        _settings.admin_username, _settings.admin_email, _settings.admin_password
+    )
+    yield
+    await database.dispose_engine()
+
+
+app = FastAPI(lifespan=lifespan)
+
+origins = [o.strip() for o in _settings.cors_origins.split(",")]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -25,87 +57,42 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(properties.router)
-app.include_router(downloads.router)
-app.include_router(songs.router)
 
-# configure log level based on that of uvicorn
-uvicorn_logger = logging.getLogger("uvicorn.error")
-logger.handlers = uvicorn_logger.handlers
-logger.setLevel(uvicorn_logger.level)
+_V1 = "/v1"
+app.include_router(auth.router, prefix=_V1)
+app.include_router(admin.router, prefix=_V1)
+app.include_router(offline.router, prefix=_V1)
+app.include_router(library.router, prefix=_V1)
+app.include_router(player.router, prefix=_V1)
+app.include_router(properties.router, prefix=_V1)
+app.include_router(downloads.router, prefix=_V1)
+app.include_router(songs.router, prefix=_V1)
+app.include_router(share.router, prefix=_V1)
+app.include_router(edit.router, prefix=_V1)
+app.include_router(imports.router, prefix=_V1)
+app.include_router(playlists.router, prefix=_V1)
+app.include_router(version_router.router, prefix=_V1)
 
 
-async def initialize_db():
-    settings = load_settings()
-    db = RedisClient(host=settings.redis_host, port=settings.redis_port)
-    schema = (
-        TextField(
-            f"$.{settings.redis_song_index_prefix}.trackName", as_name="trackName"
-        ),
-        TextField(
-            f"$.{settings.redis_song_index_prefix}.artistName", as_name="artistName"
-        ),
-        TextField(
-            f"$.{settings.redis_song_index_prefix}.collectionName",
-            as_name="collectionName",
-        ),
-        TextField(
-            f"$.{settings.redis_song_index_prefix}.collectionId",
-            as_name="collectionId",
-        ),
-        TextField(
-            f"$.{settings.redis_song_index_prefix}.artworkUrl100",
-            as_name="artworkUrl100",
-        ),
-        TextField(
-            f"$.{settings.redis_song_index_prefix}.primaryGenreName",
-            as_name="primaryGenreName",
-        ),
-        NumericField(
-            f"$.{settings.redis_song_index_prefix}.trackNumber", as_name="trackNumber"
-        ),
-        NumericField(
-            f"$.{settings.redis_song_index_prefix}.trackCount", as_name="trackCount"
-        ),
-        TextField(
-            f"$.{settings.redis_song_index_prefix}.collectionArtistName",
-            as_name="collectionArtistName",
-        ),
-        NumericField(
-            f"$.{settings.redis_song_index_prefix}.discNumber", as_name="discNumber"
-        ),
-        NumericField(
-            f"$.{settings.redis_song_index_prefix}.discCount", as_name="discCount"
-        ),
-        TextField(
-            f"$.{settings.redis_song_index_prefix}.releaseDate", as_name="releaseDate"
-        ),
-        TextField(
-            f"$.{settings.redis_song_index_prefix}.releaseDateKey",
-            as_name="releaseDateKey",
-        ),
-    )
-    res = await db.list_indices()
-    if res is not None and settings.redis_song_index_name not in res:
-        res = await db.create_index(
-            settings.redis_song_index_name,
-            schema,
-            definition=IndexDefinition(
-                prefix=[f"{settings.redis_song_index_prefix}:"],
-                index_type=IndexType.JSON,
-            ),
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    async with database._session_factory() as session:
+        row = ErrorLog(
+            id=str(uuid.uuid4()),
+            level="error",
+            path=request.url.path,
+            method=request.method,
+            status_code=500,
+            message=str(exc),
+            detail=tb,
         )
-        uvicorn_logger.info(f"songs index initialized {res}")
-
-
-@app.on_event("startup")
-async def startup_event():
-    # for _dir in settings.dirs: # pyright: ignore
-    #     if not os.path.exists(_dir):
-    #         logger.info(f"Creating dir {_dir}")
-    #         os.mkdir(_dir)
-    await initialize_db()
-    return True
+        session.add(row)
+        try:
+            await session.commit()
+        except Exception:
+            pass
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @app.get("/")

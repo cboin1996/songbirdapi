@@ -29,6 +29,10 @@ migrate:
 local-run:
 	uv run uvicorn $(APP_NAME).server:app --host 0.0.0.0 --reload
 
+.PHONY: local-run-no-reload
+local-run-no-reload:
+	uv run uvicorn $(APP_NAME).server:app --host 0.0.0.0
+
 POSTGRES_PERSISTENCE_DIR=./data/postgres/
 SONGBIRD_API_PERSISTENCE_DIR=./data/songbirdapi/
 SONGBIRD_API_DOWNLOADS_DIR=$(SONGBIRD_API_PERSISTENCE_DIR)downloads

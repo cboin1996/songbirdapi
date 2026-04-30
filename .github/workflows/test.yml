@@ -61,6 +61,9 @@ jobs:
       - name: Unit tests
         run: make test
 
+      - name: Create required directories
+        run: mkdir -p data/downloads
+
       - name: Integration tests
         env:
           ENV: test

@@ -57,12 +57,22 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.KEEBOX_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p 223 ${{ secrets.KEEBOX_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -4 -p 223 ${{ secrets.KEEBOX_HOST }} >> ~/.ssh/known_hosts
+          cat >> ~/.ssh/config << EOF
+          Host ${{ secrets.KEEBOX_HOST }}
+            HostName ${{ secrets.KEEBOX_HOST }}
+            User ${{ secrets.KEEBOX_USER }}
+            Port 223
+            IdentityFile ~/.ssh/deploy_key
+            AddressFamily inet
+            StrictHostKeyChecking no
+          EOF
 
       - name: Deploy to keebox
         run: |
-          ssh -i ~/.ssh/deploy_key -p 223 -o StrictHostKeyChecking=no keenan@${{ secrets.KEEBOX_HOST }} 'bash -s' << 'ENDSSH'
+          ssh ${{ secrets.KEEBOX_HOST }} 'bash -s' << 'ENDSSH'
             set -e
+            docker system prune -f
             cd ~/songbird
             docker-compose pull songbirdapi
             docker-compose run --rm --entrypoint alembic songbirdapi upgrade head

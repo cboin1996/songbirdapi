@@ -65,6 +65,6 @@ jobs:
             set -e
             cd ~/songbird
             docker-compose pull songbirdapi
-            docker-compose run --rm songbirdapi alembic upgrade head
+            docker-compose run --rm --entrypoint alembic songbirdapi upgrade head
             docker-compose up -d songbirdapi
           ENDSSH

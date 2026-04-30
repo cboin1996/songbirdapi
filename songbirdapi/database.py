@@ -50,12 +50,11 @@ async def get_db():
     # SQLAlchemy 2.0 async autobegins a transaction on the first query. On
     # read-only routes (and on routes that error before a commit) nothing
     # commits or rolls back, so the underlying asyncpg connection returns
-    # to the pool 'idle in transaction'. Roll back on exit to release it.
+    # to the pool 'idle in transaction'. Roll back on exit (in finally so
+    # it also fires when FastAPI exits the dependency via GeneratorExit).
+    # No-op when a commit has already cleared the transaction.
     async with _session_factory() as session:
         try:
             yield session
-        except Exception:
-            await session.rollback()
-            raise
-        else:
+        finally:
             await session.rollback()

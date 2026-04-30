@@ -1,231 +1,161 @@
-# songbirdapi — deployment (keebox beta)
+# songbirdapi — deployment
 
-This is the manual beta-deploy runbook for the live instance at <https://songbird.kee-flix.com>. Future automation will follow the `keebox-app-template` pattern (build to GHCR, SSH + pull on keebox), but until that lands, every push to keebox is manual.
+Live instance: <https://songbird.kee-flix.com>
 
-## Status as of 2026-04-29
+## CI/CD overview
 
-- **Live URL:** <https://songbird.kee-flix.com>
-- **Tagged SHAs (`keebox-beta-1` on both repos):**
-  - songbirdapi: `b022e95` on `songbirdapi-enhancements`
-  - songbirdweb: `9d505ca` on `songbirdweb-enhancements`
-- **songbirdcore:** `0.1.9` from PyPI (pinned via `uv.lock`)
-- **Postgres:** 16 alpine
+| Event | What happens |
+|---|---|
+| PR → main | version check + unit + integration tests |
+| Push to main | Docker image built and pushed to Docker Hub (`cboin/songbirdapi:latest` + SHA tag) |
+| Tag `v*` | Docker push + GitHub Release created + keebox deploy triggered |
 
-To diff what has drifted from the live tag: `git diff keebox-beta-1` in each repo.
+Deploy flow on keebox (tag-triggered):
+1. `docker system prune -f` — reclaim space
+2. `docker-compose pull songbirdapi` — pull new image from Hub
+3. `docker-compose run --rm --entrypoint alembic songbirdapi upgrade head` — run migrations
+4. `docker-compose up -d songbirdapi` — restart with new image
+
+## Versioning
+
+Every PR must bump both `songbirdapi/version.py` and `pyproject.toml` — the `version-check` CI job enforces this.
+
+## CI deploy key setup (one-time)
+
+Generate a dedicated keypair and register it:
+
+```bash
+ssh-keygen -t ed25519 -C "songbirdapi-ci" -f ~/.ssh/songbirdapi_ci_deploy -N ""
+ssh-copy-id -i ~/.ssh/songbirdapi_ci_deploy.pub -p 223 <keebox-user>@<keebox-host>
+```
+
+Set GitHub secrets in both repos (do not commit key values):
+
+```bash
+gh secret set KEEBOX_SSH_KEY -R cboin1996/songbirdapi < ~/.ssh/songbirdapi_ci_deploy
+gh secret set KEEBOX_SSH_KEY -R cboin1996/songbirdweb < ~/.ssh/songbirdapi_ci_deploy
+gh secret set KEEBOX_HOST    -R cboin1996/songbirdapi  # value: keebox hostname
+gh secret set KEEBOX_HOST    -R cboin1996/songbirdweb
+gh secret set KEEBOX_USER    -R cboin1996/songbirdapi  # value: keebox ssh user
+gh secret set KEEBOX_USER    -R cboin1996/songbirdweb
+```
+
+Private key lives at `~/.ssh/songbirdapi_ci_deploy` on cboin's machine.
 
 ## Host
 
-```
-keenan@kee-flix.com -p 223
-```
+See `KEEBOX_HOST` / `KEEBOX_USER` secrets. SSH port 223.
 
-(SSH alias `kee-flix.com` is configured in `~/.ssh/config` — port 223 is the canonical entry.)
+Local alias (cboin's `~/.ssh/config`):
+```
+Host kee-flix.com
+  AddressFamily inet
+  Port 223
+  User <KEEBOX_USER>
+```
 
 ## Domain + nginx routing
 
-SSL is terminated at the host nginx (managed by Keenan via NPM — Nginx Proxy Manager).
+SSL terminated at host nginx (Nginx Proxy Manager).
 
 | Path | Forwarded to |
 |---|---|
 | `/v1/*` | `http://127.0.0.1:9669` (songbirdapi) |
 | `/*` | `http://127.0.0.1:6996` (songbirdweb) |
 
-Reference snippet (already configured on the host):
+NPM config note: **Forward Scheme must be `http`** (not `https`). Also requires `client_max_body_size 100m;` in custom nginx config so `/v1/import` uploads don't 413.
 
-```nginx
-location /v1/ {
-    proxy_pass http://127.0.0.1:9669;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-}
-location / {
-    proxy_pass http://127.0.0.1:6996;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-}
-```
+## Container ports
 
-## Container ports (host:container)
-
-| Service | Mapping |
+| Service | Host:container |
 |---|---|
-| songbirdweb | `6996:3000` |
 | songbirdapi | `9669:8000` |
-| postgres | not exposed externally; reached over the `songbird` Docker network |
+| songbirdweb | `6996:3000` |
+| postgres | internal only (Docker network) |
 
 ## Storage layout
 
 ```
 /mnt/jellydisk3/songbird/
-├── postgres/             # postgres:16-alpine data volume
+├── postgres/         # postgres data volume
 └── data/
-    ├── downloads/        # MP3 / M4A files
-    └── artwork/          # <song_uuid>/{thumb,full}.jpg
+    ├── downloads/    # MP3 / M4A files
+    └── artwork/      # <song_uuid>/{thumb,full}.jpg
 ```
 
-The directory tree is created once via `sudo` and chown'd to `keenan:keenan`. Note: the API container creates files inside `/songbirdapi/data` as **root (UID 0)**, so cleaning files from the host requires `sudo` or a temp container with the same volume mount. This is the temporary home shared with jellyfin until the dedicated 4 TB drive is installed.
+Note: API container writes files as root (UID 0). Cleaning from the host requires `sudo` or a temp container with the same volume mount.
 
-## Layout on keebox
+## keebox layout
 
 ```
 ~/songbird/
-├── docker-compose.yml      # canonical compose (clone of songbird-keebox/docker-compose.yml)
-├── .env                    # prod secrets (NOT committed)
-├── songbirdapi/            # cloned repo, on songbirdapi-enhancements branch
-└── songbirdweb/            # cloned repo, on songbirdweb-enhancements branch
+├── docker-compose.yml   # pulled from songbird-keebox repo
+├── .env                 # prod secrets (NOT committed)
 ```
 
-## One-time setup
+## `.env` template
 
 ```bash
-ssh kee-flix.com   # alias, port 223
+# Postgres
+POSTGRES_DB=<name>
+POSTGRES_USER=<user>
+POSTGRES_PASSWORD=<password>
 
+# API
+API_KEY=<random>
+JWT_SECRET=<long-random-string>
+CORS_ORIGINS=https://songbird.kee-flix.com
+
+# Seeded admin (created on first boot)
+ADMIN_USERNAME=<username>
+ADMIN_EMAIL=<email>
+ADMIN_PASSWORD=<password>
+```
+
+> Any new field added to `SongbirdServerConfig` in `settings.py` must be added here before redeploying, otherwise the container will crash on boot.
+
+## First-time keebox setup
+
+```bash
 # storage
-sudo mkdir -p /mnt/jellydisk3/songbird/{postgres,data}
-sudo chown -R keenan:keenan /mnt/jellydisk3/songbird
+sudo mkdir -p /mnt/jellydisk3/songbird/{postgres,data/downloads,data/artwork}
+sudo chown -R <keebox-user>:<keebox-user> /mnt/jellydisk3/songbird
 
 # app dir
 mkdir -p ~/songbird && cd ~/songbird
+# copy docker-compose.yml from songbird-keebox repo and create .env from template above
 
-# clone repos at feature branches (public repos, no auth needed)
-git clone -b songbirdapi-enhancements https://github.com/cboin1996/songbirdapi.git
-git clone -b songbirdweb-enhancements https://github.com/cboin1996/songbirdweb.git
+# run migrations and start
+docker-compose run --rm --entrypoint alembic songbirdapi upgrade head
+docker-compose up -d
+docker-compose logs -f --tail 50
 ```
 
-Copy `docker-compose.yml` from `~/proj/cboin1996/songbird-keebox/docker-compose.yml` → `~/songbird/docker-compose.yml`. Copy `.env.example` → `~/songbird/.env` and fill real secrets.
-
-### `.env` template
-
-```bash
-# ---- Postgres ----
-POSTGRES_DB=songbird
-POSTGRES_USER=songbird
-POSTGRES_PASSWORD=CHANGEME
-
-# ---- API secrets ----
-API_KEY=CHANGEME
-JWT_SECRET=CHANGEME_USE_LONG_RANDOM_STRING
-CORS_ORIGINS=https://songbird.kee-flix.com
-
-# ---- Seeded admin (created on first boot) ----
-ADMIN_USERNAME=cboin
-ADMIN_EMAIL=cboin1996@gmail.com
-ADMIN_PASSWORD=CHANGEME
-```
-
-> Any new `SongbirdServerConfig` field in `songbirdapi/settings.py` must be added here **before** you redeploy, otherwise the container will crash on boot.
-
-## Build + start
+## Manual deploy / rollback
 
 ```bash
 cd ~/songbird
-docker compose build      # ~5–10 min for the api image (multi-arch toolchain)
-docker compose up -d
-docker compose logs -f --tail 50
+docker system prune -f
+docker-compose pull songbirdapi
+docker-compose run --rm --entrypoint alembic songbirdapi upgrade head
+docker-compose up -d songbirdapi
 ```
 
-## Verify
-
+Rollback to a prior tag:
 ```bash
-curl -s http://localhost:9669/v1/version    # api up
-curl -sI http://localhost:6996/             # web up
+docker-compose pull cboin/songbirdapi:<prior-tag>
+docker-compose run --rm --entrypoint alembic songbirdapi downgrade <prior-rev>
+docker-compose up -d songbirdapi
 ```
 
-Browse: <https://songbird.kee-flix.com>. Login with `ADMIN_USERNAME` / `ADMIN_PASSWORD` from `.env`.
-
-## Update an existing deploy
-
-```bash
-cd ~/songbird/songbirdapi && git pull
-cd ~/songbird/songbirdweb && git pull
-cd ~/songbird
-
-# run migrations *before* swapping to the new image
-docker compose run --rm songbirdapi alembic upgrade head
-
-docker compose build
-docker compose up -d
-docker image prune -f      # reclaim space from old layers
-```
-
-## Rollback
-
-If a deploy breaks something:
-
-```bash
-cd ~/songbird/songbirdapi && git checkout keebox-beta-1
-cd ~/songbird/songbirdweb && git checkout keebox-beta-1
-cd ~/songbird
-docker compose build
-docker compose up -d
-```
-
-If the rollback also requires a DB downgrade:
-
-```bash
-docker compose run --rm songbirdapi alembic downgrade <prior-rev>
-docker compose up -d
-```
-
-If the schema can't be downgraded cleanly (rare — autogenerate produces both `upgrade` and `downgrade` but the latter is sometimes stripped during review), restore from a Postgres backup taken just before the deploy.
-
-## Lingering NPM hot-fix (TEMPORARY — Keenan to persist)
-
-The host nginx config is currently in a hand-edited state that will be wiped the next time someone clicks Save in the NPM admin UI for `songbird.kee-flix.com`. Keenan needs to set both via the UI so the changes persist:
-
-1. **Forward Scheme = `http`** (was `https` by default — caused the `502 Bad Gateway` we hit during initial bring-up).
-2. **Custom Nginx Configuration:** add `client_max_body_size 100m;` (so `/v1/import` multipart uploads above 1 MB don't 413).
-
-Backup of the original NPM-generated config lives at `/home/keenan/netflix/nginx/data/nginx/proxy_host/3.conf.bak` on keebox.
-
-> **Until Keenan saves these in the NPM UI, never click Save on the proxy host entry — it will overwrite the hand-edited `.conf` with NPM's default and break the site.**
-
-## What's next (in order)
-
-1. **Test harness** (Tier 1 from earlier audit): songbirdapi pytest CI gate, songbirdcore gdrive/youtube coverage, songbirdapi security unit tests, songbirdweb React component tests.
-2. **CI deploy** per repo following `keebox-app-template`: build to GHCR, SSH + pull on keebox.
-3. **Small UI polish** flagged during beta usage: dove counter / "X finished" grey text desync vs "done" chip, etc.
-
-## Quick reference — common ops on keebox
+## Quick reference
 
 | Thing | Command |
 |---|---|
-| Tail API logs | `docker compose logs -f --tail 100 songbirdapi` |
-| Tail web logs | `docker compose logs -f --tail 100 songbirdweb` |
-| Restart API only | `docker compose restart songbirdapi` |
+| Tail API logs | `docker-compose logs -f --tail 100 songbirdapi` |
+| Tail web logs | `docker-compose logs -f --tail 100 songbirdweb` |
+| Restart API | `docker-compose restart songbirdapi` |
 | Open psql | `docker exec -it songbird-postgres psql -U $POSTGRES_USER -d $POSTGRES_DB` |
-| Apply pending migrations | `docker compose run --rm songbirdapi alembic upgrade head` |
-| Clean up dangling images | `docker image prune -f` |
-| Check disk usage | `du -sh /mnt/jellydisk3/songbird/*` |
-
-## CI/CD design (new)
-
-**PR workflow:**
-- `test.yml` runs `migrate + lint + test + test-integration` with postgres service.
-- Merge gates on passing checks.
-
-**Main branch:**
-- On push, `docker.yml` builds the image and pushes to Docker Hub (tagged with commit SHA + `latest`).
-
-**Tags (semver):**
-- `v1.0.0`, `v1.1.0`, etc. → keebox deploy + GitHub release (future automation).
-- Manual deploy from `*-enhancements` branches with `keebox-beta-2` tags for now.
-
-**Semver bumps:**
-- Must update both `songbirdapi/version.py` and `pyproject.toml`.
-- web's `package.json` and API versions must move together (future PR check will enforce).
-
-## Migration strategy
-
-On keebox, migrations are **always run before bringing the service up**:
-
-```bash
-docker compose run --rm songbirdapi alembic upgrade head
-docker compose up -d
-```
-
-This ensures the running app boots against the new schema. Rollback is same process with `alembic downgrade <prior-rev>`.
-
-## Why we deploy this way (for now)
-
-Manual beta deploy validates the full stack with real users before automating CI. ~567 enriched MP3 / M4A files were imported via the import UI for content. Once the test harness backlog is cleared and CI deploy lands, this runbook becomes a fallback for emergency rollbacks; routine pushes will be automated.
+| Apply migrations | `docker-compose run --rm --entrypoint alembic songbirdapi upgrade head` |
+| Prune images | `docker system prune -f` |
+| Check disk | `du -sh /mnt/jellydisk3/songbird/*` |

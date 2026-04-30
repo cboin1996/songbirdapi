@@ -9,11 +9,25 @@ from sqlalchemy import cast, Date, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from songbirdapi import crud
-from songbirdapi.models import EditJob, EditJobStatus, ErrorLog, ImportJob, Role, Song, SongDownload, SongPlay, SongShareToken, User, UserSong
+from songbirdapi.models import (
+    EditJob,
+    EditJobStatus,
+    ErrorLog,
+    ImportJob,
+    Role,
+    Song,
+    SongDownload,
+    SongPlay,
+    SongShareToken,
+    User,
+    UserSong,
+)
 from songbirdapi.routers.auth import UserResponse
 from ..dependencies import get_db, load_settings, require_admin
 
-router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)]
+)
 
 
 class UpdateUserBody(BaseModel):
@@ -27,10 +41,14 @@ async def list_users(db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/users/{user_id}", response_model=UserResponse)
-async def update_user(user_id: str, body: UpdateUserBody, db: AsyncSession = Depends(get_db)):
+async def update_user(
+    user_id: str, body: UpdateUserBody, db: AsyncSession = Depends(get_db)
+):
     user = await crud.update_user(db, user_id, role=body.role, is_active=body.is_active)
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
     return user
 
 
@@ -38,7 +56,9 @@ async def update_user(user_id: str, body: UpdateUserBody, db: AsyncSession = Dep
 async def delete_user(user_id: str, db: AsyncSession = Depends(get_db)):
     deleted = await crud.delete_user(db, user_id)
     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
 
 class EditJobSummary(BaseModel):
@@ -99,22 +119,40 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     user_count = (await db.execute(select(func.count()).select_from(User))).scalar_one()
     disk_usage = shutil.disk_usage(config.downloads_dir)
 
-    failed_job_count = (await db.execute(
-        select(func.count()).select_from(EditJob).where(EditJob.status == EditJobStatus.failed)
-    )).scalar_one()
+    failed_job_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(EditJob)
+            .where(EditJob.status == EditJobStatus.failed)
+        )
+    ).scalar_one()
 
-    import_count = (await db.execute(select(func.count()).select_from(ImportJob))).scalar_one()
-    import_failed_count = (await db.execute(
-        select(func.count()).select_from(ImportJob).where(ImportJob.status == EditJobStatus.failed)
-    )).scalar_one()
-    import_duplicate_count = (await db.execute(
-        select(func.count()).select_from(ImportJob).where(ImportJob.duplicate_of.isnot(None))
-    )).scalar_one()
+    import_count = (
+        await db.execute(select(func.count()).select_from(ImportJob))
+    ).scalar_one()
+    import_failed_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(ImportJob)
+            .where(ImportJob.status == EditJobStatus.failed)
+        )
+    ).scalar_one()
+    import_duplicate_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(ImportJob)
+            .where(ImportJob.duplicate_of.isnot(None))
+        )
+    ).scalar_one()
 
     now = datetime.now(tz=timezone.utc)
-    active_share_tokens = (await db.execute(
-        select(func.count()).select_from(SongShareToken).where(SongShareToken.expires_at > now)
-    )).scalar_one()
+    active_share_tokens = (
+        await db.execute(
+            select(func.count())
+            .select_from(SongShareToken)
+            .where(SongShareToken.expires_at > now)
+        )
+    ).scalar_one()
 
     jobs_result = await db.execute(
         select(EditJob).order_by(EditJob.created_at.desc()).limit(10)
@@ -175,8 +213,16 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     top_songs = [
         TopSong(
             song_id=r.song_id,
-            title=(top_song_map[r.song_id].properties or {}).get("trackName") if r.song_id in top_song_map else None,
-            artist=(top_song_map[r.song_id].properties or {}).get("artistName") if r.song_id in top_song_map else None,
+            title=(
+                (top_song_map[r.song_id].properties or {}).get("trackName")
+                if r.song_id in top_song_map
+                else None
+            ),
+            artist=(
+                (top_song_map[r.song_id].properties or {}).get("artistName")
+                if r.song_id in top_song_map
+                else None
+            ),
             count=r.cnt,
         )
         for r in top_song_rows
@@ -197,12 +243,16 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     user_play_counts = {r.user_id: r.cnt for r in user_play_counts_result}
 
     user_dl_counts_result = await db.execute(
-        select(SongDownload.user_id, func.count().label("cnt")).group_by(SongDownload.user_id)
+        select(SongDownload.user_id, func.count().label("cnt")).group_by(
+            SongDownload.user_id
+        )
     )
     user_dl_counts = {r.user_id: r.cnt for r in user_dl_counts_result}
 
     user_last_play_result = await db.execute(
-        select(SongPlay.user_id, func.max(SongPlay.played_at).label("last")).group_by(SongPlay.user_id)
+        select(SongPlay.user_id, func.max(SongPlay.played_at).label("last")).group_by(
+            SongPlay.user_id
+        )
     )
     user_last_play = {r.user_id: r.last for r in user_last_play_result}
 
@@ -213,7 +263,9 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
             song_count=user_song_counts.get(u.id, 0),
             play_count=user_play_counts.get(u.id, 0),
             download_count=user_dl_counts.get(u.id, 0),
-            last_active=user_last_play[u.id].isoformat() if u.id in user_last_play else None,
+            last_active=(
+                user_last_play[u.id].isoformat() if u.id in user_last_play else None
+            ),
         )
         for u in all_users
     ]
@@ -305,10 +357,16 @@ async def get_errors(
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    error_log_count = (await db.execute(select(func.count()).select_from(ErrorLog))).scalar_one()
-    failed_job_count_errors = (await db.execute(
-        select(func.count()).select_from(EditJob).where(EditJob.status == EditJobStatus.failed)
-    )).scalar_one()
+    error_log_count = (
+        await db.execute(select(func.count()).select_from(ErrorLog))
+    ).scalar_one()
+    failed_job_count_errors = (
+        await db.execute(
+            select(func.count())
+            .select_from(EditJob)
+            .where(EditJob.status == EditJobStatus.failed)
+        )
+    ).scalar_one()
     total = error_log_count + failed_job_count_errors
 
     error_logs_result = await db.execute(

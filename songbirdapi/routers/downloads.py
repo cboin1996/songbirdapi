@@ -31,8 +31,6 @@ router = APIRouter(
 config = load_settings()
 
 
-
-
 class FileFormats(enum.StrEnum):
     mp3 = "mp3"
     m4a = "m4a"
@@ -72,7 +70,12 @@ async def download(
         logger.info(f"returning cached values {[s.uuid for s in existing]}")
         for s in existing:
             await crud.record_download(db, s.uuid, current_user.id)
-        return DownloadResponse(song_ids={s.uuid for s in existing}, cached=True, properties=existing[0].properties, artwork_cached=existing[0].artwork_thumb is not None)
+        return DownloadResponse(
+            song_ids={s.uuid for s in existing},
+            cached=True,
+            properties=existing[0].properties,
+            artwork_cached=existing[0].artwork_thumb is not None,
+        )
 
     song_id = str(uuid.uuid4())
     file_path = os.path.join(config.downloads_dir, song_id)
@@ -123,8 +126,11 @@ async def download(
     artwork_cached = False
     if artwork_bytes:
         from ..artwork import store_artwork_from_bytes
+
         try:
-            thumb, full = await store_artwork_from_bytes(song_id, artwork_bytes, config.artwork_dir)
+            thumb, full = await store_artwork_from_bytes(
+                song_id, artwork_bytes, config.artwork_dir
+            )
             if thumb or full:
                 await crud.update_song_artwork(db, song_id, thumb, full)
                 artwork_cached = True
@@ -132,21 +138,27 @@ async def download(
             pass
 
     logger.info(f"returning downloaded song {song_id}")
-    return DownloadResponse(song_ids={song_id}, properties=props, artwork_cached=artwork_cached)
+    return DownloadResponse(
+        song_ids={song_id}, properties=props, artwork_cached=artwork_cached
+    )
 
 
 @router.get("/{id}")
 async def get_download(id: str, request: Request, db: AsyncSession = Depends(get_db)):
     song = await crud.get_song(db, id)
     if not song or not os.path.exists(song.file_path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Song {id} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Song {id} not found"
+        )
 
     file_size = os.path.getsize(song.file_path)
     media_type = mimetypes.guess_type(song.file_path)[0] or "audio/mpeg"
     range_header = request.headers.get("range")
 
     if not range_header:
-        return FileResponse(song.file_path, media_type=media_type, headers={"Accept-Ranges": "bytes"})
+        return FileResponse(
+            song.file_path, media_type=media_type, headers={"Accept-Ranges": "bytes"}
+        )
 
     match = re.match(r"bytes=(\d+)-(\d*)", range_header)
     if not match:
@@ -190,5 +202,8 @@ async def get_download(id: str, request: Request, db: AsyncSession = Depends(get
 @router.delete("/{id}")
 async def delete_download(id: str, db: AsyncSession = Depends(get_db)):
     if await crud.child_ref_count(db, id) > 0:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Song has edited versions and cannot be deleted")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Song has edited versions and cannot be deleted",
+        )
     await crud.delete_song(db, id)

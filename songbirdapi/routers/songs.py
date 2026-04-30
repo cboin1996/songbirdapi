@@ -27,19 +27,19 @@ class SongResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
     def _compute_artwork_cached(cls, data):
-        if hasattr(data, 'artwork_thumb'):
+        if hasattr(data, "artwork_thumb"):
             return {
-                'uuid': data.uuid,
-                'url': data.url,
-                'properties': data.properties,
-                'artwork_cached': data.artwork_thumb is not None,
-                'owner_id': data.owner_id,
-                'root_song_id': getattr(data, 'root_song_id', None),
-                'parent_song_id': getattr(data, 'parent_song_id', None),
-                'source': getattr(data, 'source', None),
+                "uuid": data.uuid,
+                "url": data.url,
+                "properties": data.properties,
+                "artwork_cached": data.artwork_thumb is not None,
+                "owner_id": data.owner_id,
+                "root_song_id": getattr(data, "root_song_id", None),
+                "parent_song_id": getattr(data, "parent_song_id", None),
+                "source": getattr(data, "source", None),
             }
         return data
 
@@ -115,15 +115,32 @@ async def explore(
     current_user: User = Depends(get_current_user),
 ):
     most_played = await crud.get_popular_songs(db, window, user_id=current_user.id)
-    most_downloaded = await crud.get_popular_downloads(db, window, user_id=current_user.id)
+    most_downloaded = await crud.get_popular_downloads(
+        db, window, user_id=current_user.id
+    )
     most_libraryed = await crud.get_most_libraryed(db, window, user_id=current_user.id)
-    recently_added_songs = await crud.get_recently_added(db, user_id=current_user.id, window=window)
+    recently_added_songs = await crud.get_recently_added(
+        db, user_id=current_user.id, window=window
+    )
     your_most_played = await crud.get_user_most_played(db, current_user.id, window)
-    your_most_downloaded = await crud.get_user_most_downloaded(db, current_user.id, window)
-    your_recently_saved = await crud.get_user_recently_saved(db, current_user.id, window)
-    your_recently_played = await crud.get_user_recently_played(db, current_user.id, window=window)
+    your_most_downloaded = await crud.get_user_most_downloaded(
+        db, current_user.id, window
+    )
+    your_recently_saved = await crud.get_user_recently_saved(
+        db, current_user.id, window
+    )
+    your_recently_played = await crud.get_user_recently_played(
+        db, current_user.id, window=window
+    )
     recently_added = [
-        RecentlyAddedSong(uuid=s.uuid, url=s.url, properties=s.properties, added_at=s.created_at.isoformat(), source=s.source, artwork_cached=s.artwork_thumb is not None)
+        RecentlyAddedSong(
+            uuid=s.uuid,
+            url=s.url,
+            properties=s.properties,
+            added_at=s.created_at.isoformat(),
+            source=s.source,
+            artwork_cached=s.artwork_thumb is not None,
+        )
         for s in recently_added_songs
     ]
     return ExploreResponse(
@@ -146,7 +163,9 @@ async def get_song(
 ):
     song = await crud.get_song(db, id)
     if not song:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="song not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="song not found"
+        )
     return song
 
 
@@ -166,17 +185,28 @@ async def get_artwork(
     db: AsyncSession = Depends(get_db),
 ):
     from fastapi.responses import RedirectResponse
+
     song = await crud.get_song(db, id)
     if not song:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
-    path = song.artwork_thumb if size == "thumb" else (song.artwork_full or song.artwork_thumb)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Song not found"
+        )
+    path = (
+        song.artwork_thumb
+        if size == "thumb"
+        else (song.artwork_full or song.artwork_thumb)
+    )
     if path and os.path.exists(path):
         return FileResponse(path, media_type="image/jpeg")
     itunes_url = (song.properties or {}).get("artworkUrl100", "")
     if itunes_url:
         target_size = "200x200bb" if size == "thumb" else "600x600bb"
-        return RedirectResponse(url=itunes_url.replace("100x100bb", target_size), status_code=302)
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artwork not cached")
+        return RedirectResponse(
+            url=itunes_url.replace("100x100bb", target_size), status_code=302
+        )
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Artwork not cached"
+    )
 
 
 @router.post("/{id}/artwork", status_code=200)
@@ -189,19 +219,30 @@ async def upload_artwork(
     song = await crud.get_song(db, id)
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
-    if song.owner_id and song.owner_id != current_user.id and current_user.role.value != "admin":
+    if (
+        song.owner_id
+        and song.owner_id != current_user.id
+        and current_user.role.value != "admin"
+    ):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     MAX_ARTWORK_BYTES = 10 * 1024 * 1024  # 10 MB
     if file.size is not None and file.size > MAX_ARTWORK_BYTES:
-        raise HTTPException(status_code=413, detail="Artwork file too large (max 10 MB)")
+        raise HTTPException(
+            status_code=413, detail="Artwork file too large (max 10 MB)"
+        )
     content = await file.read()
     if len(content) > MAX_ARTWORK_BYTES:
-        raise HTTPException(status_code=413, detail="Artwork file too large (max 10 MB)")
+        raise HTTPException(
+            status_code=413, detail="Artwork file too large (max 10 MB)"
+        )
 
     from ..artwork import store_artwork_from_bytes
+
     try:
-        thumb_path, full_path = await store_artwork_from_bytes(id, content, _config.artwork_dir)
+        thumb_path, full_path = await store_artwork_from_bytes(
+            id, content, _config.artwork_dir
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await crud.update_song_artwork(db, id, thumb_path, full_path)

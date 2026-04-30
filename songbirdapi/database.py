@@ -10,7 +10,9 @@ _session_factory = None
 
 def init_engine(dsn: str):
     global _engine, _session_factory
-    _engine = create_async_engine(dsn, echo=False, pool_size=20, max_overflow=10, pool_pre_ping=True)
+    _engine = create_async_engine(
+        dsn, echo=False, pool_size=20, max_overflow=10, pool_pre_ping=True
+    )
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 
 
@@ -22,6 +24,7 @@ async def create_schema():
 async def seed_admin(username: str, email: str, password: str):
     from .crud import get_user_by_username
     from .security import hash_password
+
     if not username or not email or not password:
         return
     async with _session_factory() as session:

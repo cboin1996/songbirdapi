@@ -31,7 +31,13 @@ class PublishRequest(BaseModel):
     song_ids: list[str]
 
 
-REQUIRED_FIELDS = ["trackName", "artistName", "collectionName", "artworkUrl100", "primaryGenreName"]
+REQUIRED_FIELDS = [
+    "trackName",
+    "artistName",
+    "collectionName",
+    "artworkUrl100",
+    "primaryGenreName",
+]
 FIELD_LABELS = {
     "trackName": "track name",
     "artistName": "artist",
@@ -89,7 +95,15 @@ async def get_eligible_songs(
                     missing.append(FIELD_LABELS[f])
             elif not p.get(f):
                 missing.append(FIELD_LABELS[f])
-        songs.append(EligibleSong(uuid=uuid, properties=props, eligible=len(missing) == 0, missing_fields=missing, artwork_cached=artwork_thumb is not None))
+        songs.append(
+            EligibleSong(
+                uuid=uuid,
+                properties=props,
+                eligible=len(missing) == 0,
+                missing_fields=missing,
+                artwork_cached=artwork_thumb is not None,
+            )
+        )
     return songs
 
 
@@ -100,15 +114,30 @@ async def publish_songs(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     # Only publish songs owned by the current user
-    result = await db.execute(select(Song.uuid).where(Song.owner_id == current_user.id, Song.uuid.in_(body.song_ids)))
+    result = await db.execute(
+        select(Song.uuid).where(
+            Song.owner_id == current_user.id, Song.uuid.in_(body.song_ids)
+        )
+    )
     ids = [row[0] for row in result.all()]
     if ids:
-        await db.execute(update(Song).where(Song.uuid.in_(ids)).values(owner_id=None, source="community", parent_song_id=None, root_song_id=None))
+        await db.execute(
+            update(Song)
+            .where(Song.uuid.in_(ids))
+            .values(
+                owner_id=None,
+                source="community",
+                parent_song_id=None,
+                root_song_id=None,
+            )
+        )
         await db.commit()
     return {"published": len(ids)}
 
 
-@router.post("/{song_id}", status_code=status.HTTP_201_CREATED, response_model=LibraryEntry)
+@router.post(
+    "/{song_id}", status_code=status.HTTP_201_CREATED, response_model=LibraryEntry
+)
 async def add_to_library(
     song_id: str,
     current_user: User = Depends(get_current_user),
@@ -116,13 +145,17 @@ async def add_to_library(
 ):
     song = await crud.get_song(db, song_id)
     if not song:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Song not found"
+        )
     entry = await crud.add_to_library(db, current_user.id, song_id)
     return LibraryEntry(
         song_id=entry.song_id,
         added_at=entry.added_at.isoformat(),
         last_position=entry.last_position,
-        last_played_at=entry.last_played_at.isoformat() if entry.last_played_at else None,
+        last_played_at=(
+            entry.last_played_at.isoformat() if entry.last_played_at else None
+        ),
     )
 
 
@@ -133,7 +166,9 @@ async def bulk_remove_from_library(
     db: AsyncSession = Depends(get_db),
 ):
     if not body.song_ids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="song_ids must not be empty")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="song_ids must not be empty"
+        )
     await crud.bulk_remove_from_library(db, current_user.id, body.song_ids)
 
 
@@ -145,7 +180,9 @@ async def remove_from_library(
 ):
     removed = await crud.remove_from_library(db, current_user.id, song_id)
     if not removed:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not in library")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Not in library"
+        )
 
 
 @router.patch("/{song_id}/position", response_model=LibraryEntry)
@@ -162,5 +199,7 @@ async def update_position(
         song_id=entry.song_id,
         added_at=entry.added_at.isoformat(),
         last_position=entry.last_position,
-        last_played_at=entry.last_played_at.isoformat() if entry.last_played_at else None,
+        last_played_at=(
+            entry.last_played_at.isoformat() if entry.last_played_at else None
+        ),
     )

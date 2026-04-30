@@ -14,15 +14,20 @@ from songbirdapi.server import app
 from songbirdapi.settings import SongbirdServerConfig
 
 if os.getenv("ENV") not in ("dev", "test"):
-    pytest.skip("integration tests require ENV=dev or ENV=test", allow_module_level=True)
+    pytest.skip(
+        "integration tests require ENV=dev or ENV=test", allow_module_level=True
+    )
 
 
 def pytest_collection_modifyitems(config, items):
     if os.getenv("CI"):
-        skip_local = pytest.mark.skip(reason="marked local — skipped in CI (requires yt-dlp / network)")
+        skip_local = pytest.mark.skip(
+            reason="marked local — skipped in CI (requires yt-dlp / network)"
+        )
         for item in items:
             if item.get_closest_marker("local"):
                 item.add_marker(skip_local)
+
 
 # One engine created at import time (sync, no event loop required).
 # Overriding get_db means both fixtures and app routes share this engine/pool.
@@ -49,7 +54,9 @@ app.dependency_overrides[get_db] = _override_get_db
 async def test_client():
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
         yield client
     await _engine.dispose()
 

@@ -12,7 +12,20 @@ from songbirdapi.dependencies import load_settings
 
 from . import database
 from .models import ErrorLog
-from .routers import admin, auth, downloads, edit, imports, library, offline, player, playlists, properties, share, songs
+from .routers import (
+    admin,
+    auth,
+    downloads,
+    edit,
+    imports,
+    library,
+    offline,
+    player,
+    playlists,
+    properties,
+    share,
+    songs,
+)
 from .routers import version as version_router
 from .version import version
 
@@ -27,7 +40,9 @@ _settings = load_settings()
 async def lifespan(app: FastAPI):
     database.init_engine(_settings.postgres_dsn)
     await database.create_schema()
-    await database.seed_admin(_settings.admin_username, _settings.admin_email, _settings.admin_password)
+    await database.seed_admin(
+        _settings.admin_username, _settings.admin_email, _settings.admin_password
+    )
     yield
     await database.dispose_engine()
 

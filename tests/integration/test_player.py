@@ -5,7 +5,9 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
 async def login(test_client: AsyncClient, user) -> dict:
-    resp = await test_client.post("/v1/auth/login", json={"username": user.username, "password": "testpass123"})
+    resp = await test_client.post(
+        "/v1/auth/login", json={"username": user.username, "password": "testpass123"}
+    )
     return dict(resp.cookies)
 
 
@@ -61,17 +63,29 @@ async def test_put_player_state_invalid_repeat(test_client: AsyncClient, regular
     cookies = await login(test_client, regular_user)
     resp = await test_client.put(
         "/v1/player/state",
-        json={"shuffle": False, "repeat": "invalid_value", "queue": [], "queue_index": -1},
+        json={
+            "shuffle": False,
+            "repeat": "invalid_value",
+            "queue": [],
+            "queue_index": -1,
+        },
         cookies=cookies,
     )
     assert resp.status_code == 422
 
 
-async def test_put_player_state_with_queue(test_client: AsyncClient, regular_user, sample_song):
+async def test_put_player_state_with_queue(
+    test_client: AsyncClient, regular_user, sample_song
+):
     cookies = await login(test_client, regular_user)
     resp = await test_client.put(
         "/v1/player/state",
-        json={"shuffle": False, "repeat": "one", "queue": [sample_song.uuid], "queue_index": 0},
+        json={
+            "shuffle": False,
+            "repeat": "one",
+            "queue": [sample_song.uuid],
+            "queue_index": 0,
+        },
         cookies=cookies,
     )
     assert resp.status_code in (200, 204)
@@ -81,7 +95,9 @@ async def test_put_player_state_with_queue(test_client: AsyncClient, regular_use
         assert body["queue_index"] == 0
 
 
-async def test_put_player_state_with_queue_sources(test_client: AsyncClient, regular_user, sample_song):
+async def test_put_player_state_with_queue_sources(
+    test_client: AsyncClient, regular_user, sample_song
+):
     """PUT with queue_sources populated, GET returns the same dict."""
     cookies = await login(test_client, regular_user)
     queue_sources = {
@@ -111,7 +127,9 @@ async def test_put_player_state_with_queue_sources(test_client: AsyncClient, reg
     assert body["queue_sources"] == queue_sources
 
 
-async def test_put_player_state_without_queue_sources_legacy(test_client: AsyncClient, regular_user):
+async def test_put_player_state_without_queue_sources_legacy(
+    test_client: AsyncClient, regular_user
+):
     """PUT without queue_sources (legacy clients) should not error, default to {}."""
     cookies = await login(test_client, regular_user)
     resp = await test_client.put(
@@ -128,7 +146,9 @@ async def test_put_player_state_without_queue_sources_legacy(test_client: AsyncC
     assert body["queue_sources"] == {}
 
 
-async def test_queue_sources_roundtrip_with_uuid(test_client: AsyncClient, regular_user, sample_song):
+async def test_queue_sources_roundtrip_with_uuid(
+    test_client: AsyncClient, regular_user, sample_song
+):
     """Roundtrip an entry with UUID key and all required fields."""
     cookies = await login(test_client, regular_user)
     source_uuid = sample_song.uuid
@@ -168,7 +188,9 @@ async def test_queue_sources_roundtrip_with_uuid(test_client: AsyncClient, regul
     assert body["queue_sources"] == queue_sources
 
 
-async def test_put_player_state_malformed_queue_source(test_client: AsyncClient, regular_user, sample_song):
+async def test_put_player_state_malformed_queue_source(
+    test_client: AsyncClient, regular_user, sample_song
+):
     """PUT with malformed source (missing required field) should return 422."""
     cookies = await login(test_client, regular_user)
     queue_sources = {

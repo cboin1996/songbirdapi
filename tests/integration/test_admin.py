@@ -5,7 +5,9 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
 async def login(test_client: AsyncClient, user) -> dict:
-    resp = await test_client.post("/v1/auth/login", json={"username": user.username, "password": "testpass123"})
+    resp = await test_client.post(
+        "/v1/auth/login", json={"username": user.username, "password": "testpass123"}
+    )
     return dict(resp.cookies)
 
 
@@ -71,7 +73,9 @@ async def test_list_users_as_admin(test_client: AsyncClient, admin_user, regular
     assert len(body) >= 2
 
 
-async def test_list_users_as_regular_user_forbidden(test_client: AsyncClient, regular_user):
+async def test_list_users_as_regular_user_forbidden(
+    test_client: AsyncClient, regular_user
+):
     cookies = await login(test_client, regular_user)
     resp = await test_client.get("/v1/admin/users", cookies=cookies)
     assert resp.status_code == 403
@@ -87,7 +91,9 @@ async def test_update_user_not_found(test_client: AsyncClient, admin_user):
     assert resp.status_code == 404
 
 
-async def test_update_user_role_as_admin(test_client: AsyncClient, admin_user, regular_user):
+async def test_update_user_role_as_admin(
+    test_client: AsyncClient, admin_user, regular_user
+):
     cookies = await login(test_client, admin_user)
     resp = await test_client.patch(
         f"/v1/admin/users/{regular_user.id}",
@@ -100,7 +106,11 @@ async def test_update_user_role_as_admin(test_client: AsyncClient, admin_user, r
 
 async def test_delete_user_as_admin(test_client: AsyncClient, admin_user):
     import uuid
-    admin_login = await test_client.post("/v1/auth/login", json={"username": admin_user.username, "password": "testpass123"})
+
+    admin_login = await test_client.post(
+        "/v1/auth/login",
+        json={"username": admin_user.username, "password": "testpass123"},
+    )
     uname = f"todelete_{uuid.uuid4().hex[:6]}"
     reg = await test_client.post(
         "/v1/auth/register",
@@ -117,7 +127,9 @@ async def test_delete_user_as_admin(test_client: AsyncClient, admin_user):
 
 async def test_delete_user_not_found(test_client: AsyncClient, admin_user):
     cookies = await login(test_client, admin_user)
-    resp = await test_client.delete("/v1/admin/users/00000000-0000-0000-0000-000000000000", cookies=cookies)
+    resp = await test_client.delete(
+        "/v1/admin/users/00000000-0000-0000-0000-000000000000", cookies=cookies
+    )
     assert resp.status_code == 404
 
 

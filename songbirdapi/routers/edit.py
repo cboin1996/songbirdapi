@@ -30,7 +30,7 @@ class CutRange(BaseModel):
 class FadeRange(BaseModel):
     start: float = Field(ge=0)
     end: float = Field(ge=0)
-    type: Literal['in', 'out']
+    type: Literal["in", "out"]
 
 
 class EditParams(BaseModel):
@@ -63,27 +63,47 @@ def _retag_file(file_path: str, merged_props: dict) -> None:
     artwork_url = merged_props.get("artworkUrl100") or ""
     props_for_tagging = ItunesApiSongModel.model_validate(merged_props)
     if artwork_url.startswith("http"):
-        ok = itunes.mp3ID3Tagger(file_path, props_for_tagging) if ext == ".mp3" else itunes.m4a_tagger(file_path, props_for_tagging)
+        ok = (
+            itunes.mp3ID3Tagger(file_path, props_for_tagging)
+            if ext == ".mp3"
+            else itunes.m4a_tagger(file_path, props_for_tagging)
+        )
     else:
-        ok = itunes.mp3ID3TaggerNoArtwork(file_path, props_for_tagging) if ext == ".mp3" else itunes.m4aID3TaggerNoArtwork(file_path, props_for_tagging)
+        ok = (
+            itunes.mp3ID3TaggerNoArtwork(file_path, props_for_tagging)
+            if ext == ".mp3"
+            else itunes.m4aID3TaggerNoArtwork(file_path, props_for_tagging)
+        )
     if not ok:
         raise RuntimeError("failed to tag file with merged properties")
 
 
-async def _run_edit_job(job_id: str, source_song_id: str, user_id: str, params: dict, overwrite: bool, as_original: bool = False) -> None:
+async def _run_edit_job(
+    job_id: str,
+    source_song_id: str,
+    user_id: str,
+    params: dict,
+    overwrite: bool,
+    as_original: bool = False,
+) -> None:
     async with database._session_factory() as db:
         await crud.update_edit_job(db, job_id, EditJobStatus.processing)
 
         source = await crud.get_song(db, source_song_id)
         if not source:
-            await crud.update_edit_job(db, job_id, EditJobStatus.failed, error="source song not found")
+            await crud.update_edit_job(
+                db, job_id, EditJobStatus.failed, error="source song not found"
+            )
             return
 
         prop_overrides = params.get("properties_overrides") or None
         merged_props: dict | None = None
         if prop_overrides:
             merged_props = {**(source.properties or {}), **prop_overrides}
-            if "collectionId" in merged_props and merged_props["collectionId"] is not None:
+            if (
+                "collectionId" in merged_props
+                and merged_props["collectionId"] is not None
+            ):
                 merged_props["collectionId"] = str(merged_props["collectionId"])
 
         if overwrite:
@@ -96,23 +116,35 @@ async def _run_edit_job(job_id: str, source_song_id: str, user_id: str, params: 
                 if merged_props is not None:
                     _retag_file(dest_path, merged_props)
                     await crud.update_song_properties(db, source_song_id, merged_props)
-                    if source.owner_id == user_id and crud._is_publish_eligible(merged_props, artwork_cached=source.artwork_thumb is not None):
-                        await crud.publish_song(db, source_song_id, as_original=as_original)
-                await crud.update_edit_job(db, job_id, EditJobStatus.done, result_song_id=source_song_id)
+                    if source.owner_id == user_id and crud._is_publish_eligible(
+                        merged_props, artwork_cached=source.artwork_thumb is not None
+                    ):
+                        await crud.publish_song(
+                            db, source_song_id, as_original=as_original
+                        )
+                await crud.update_edit_job(
+                    db, job_id, EditJobStatus.done, result_song_id=source_song_id
+                )
             except Exception as exc:
                 if os.path.exists(tmp_path):
                     os.remove(tmp_path)
-                await crud.update_edit_job(db, job_id, EditJobStatus.failed, error=str(exc))
+                await crud.update_edit_job(
+                    db, job_id, EditJobStatus.failed, error=str(exc)
+                )
         else:
             # Always edit from the root original to avoid compounding generation loss.
             root_id = source.root_song_id or source.uuid
-            root = await crud.get_song(db, root_id) if root_id != source.uuid else source
+            root = (
+                await crud.get_song(db, root_id) if root_id != source.uuid else source
+            )
 
             new_uuid = str(_uuid.uuid4())
             dest_path = os.path.join(_config.downloads_dir, f"{new_uuid}.mp3")
             try:
                 await apply_edits(root.file_path, dest_path, params)
-                final_props = merged_props if merged_props is not None else source.properties
+                final_props = (
+                    merged_props if merged_props is not None else source.properties
+                )
                 if merged_props is not None:
                     _retag_file(dest_path, merged_props)
                 new_song = Song(
@@ -135,21 +167,31 @@ async def _run_edit_job(job_id: str, source_song_id: str, user_id: str, params: 
                 # Enforce 2-edit cap: delete the old grandparent (pre-last-save) if it
                 # is not the root and has no other library references.
                 if source.parent_song_id and source.parent_song_id != root_id:
-                    if await crud.library_ref_count(db, source.parent_song_id) == 0 \
-                            and await crud.child_ref_count(db, source.parent_song_id) == 0:
+                    if (
+                        await crud.library_ref_count(db, source.parent_song_id) == 0
+                        and await crud.child_ref_count(db, source.parent_song_id) == 0
+                    ):
                         await crud.delete_song(db, source.parent_song_id)
 
                 await crud.add_to_library(db, user_id, new_uuid)
-                if merged_props is not None and crud._is_publish_eligible(merged_props, artwork_cached=source.artwork_thumb is not None):
+                if merged_props is not None and crud._is_publish_eligible(
+                    merged_props, artwork_cached=source.artwork_thumb is not None
+                ):
                     await crud.publish_song(db, new_uuid, as_original=as_original)
-                await crud.update_edit_job(db, job_id, EditJobStatus.done, result_song_id=new_uuid)
+                await crud.update_edit_job(
+                    db, job_id, EditJobStatus.done, result_song_id=new_uuid
+                )
             except Exception as exc:
                 if os.path.exists(dest_path):
                     os.remove(dest_path)
-                await crud.update_edit_job(db, job_id, EditJobStatus.failed, error=str(exc))
+                await crud.update_edit_job(
+                    db, job_id, EditJobStatus.failed, error=str(exc)
+                )
 
 
-@router.post("/songs/{id}", response_model=EditJobResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/songs/{id}", response_model=EditJobResponse, status_code=status.HTTP_202_ACCEPTED
+)
 async def create_edit_job(
     id: str,
     body: EditRequest,
@@ -158,16 +200,32 @@ async def create_edit_job(
     current_user: User = Depends(get_current_user),
 ):
     if body.overwrite and current_user.role != Role.admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only admins can overwrite originals")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="only admins can overwrite originals",
+        )
     if body.as_original and current_user.role != Role.admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only admins can publish as original")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="only admins can publish as original",
+        )
 
     song = await crud.get_song(db, id)
     if not song:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="song not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="song not found"
+        )
 
     job = await crud.create_edit_job(db, id, current_user.id, body.params.model_dump())
-    background_tasks.add_task(_run_edit_job, job.id, id, current_user.id, body.params.model_dump(), body.overwrite, body.as_original)
+    background_tasks.add_task(
+        _run_edit_job,
+        job.id,
+        id,
+        current_user.id,
+        body.params.model_dump(),
+        body.overwrite,
+        body.as_original,
+    )
     return EditJobResponse(job_id=job.id, status=job.status.value)
 
 
@@ -200,7 +258,9 @@ async def get_draft(
     draft = await crud.get_edit_draft(db, current_user.id, id)
     if not draft:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no draft")
-    return DraftResponse(params=EditParams(**draft.params), updated_at=draft.updated_at.isoformat())
+    return DraftResponse(
+        params=EditParams(**draft.params), updated_at=draft.updated_at.isoformat()
+    )
 
 
 @router.put("/songs/{id}/draft", status_code=status.HTTP_204_NO_CONTENT)
@@ -212,7 +272,9 @@ async def save_draft(
 ):
     song = await crud.get_song(db, id)
     if not song:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="song not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="song not found"
+        )
     await crud.upsert_edit_draft(db, current_user.id, id, body.model_dump())
 
 
@@ -233,7 +295,9 @@ async def get_edit_job_status(
 ):
     job = await crud.get_edit_job(db, job_id)
     if not job or job.user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="job not found"
+        )
     return EditJobResponse(
         job_id=job.id,
         status=job.status.value,

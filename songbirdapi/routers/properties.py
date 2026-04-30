@@ -40,18 +40,18 @@ class SongResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
     def _compute(cls, data):
-        if hasattr(data, 'artwork_thumb'):
+        if hasattr(data, "artwork_thumb"):
             return {
-                'uuid': data.uuid,
-                'url': data.url,
-                'file_path': data.file_path,
-                'properties': data.properties,
-                'owner_id': data.owner_id,
-                'source': getattr(data, 'source', None),
-                'artwork_cached': data.artwork_thumb is not None,
+                "uuid": data.uuid,
+                "url": data.url,
+                "file_path": data.file_path,
+                "properties": data.properties,
+                "owner_id": data.owner_id,
+                "source": getattr(data, "source", None),
+                "artwork_cached": data.artwork_thumb is not None,
             }
         return data
 
@@ -120,13 +120,19 @@ async def get_song_eligibility(
 ) -> EligibilityResponse:
     song = await crud.get_song(db, song_id)
     if not song:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
-    missing = _get_missing_fields(song.properties, artwork_cached=song.artwork_thumb is not None)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Song not found"
+        )
+    missing = _get_missing_fields(
+        song.properties, artwork_cached=song.artwork_thumb is not None
+    )
     return EligibilityResponse(eligible=len(missing) == 0, missing_fields=missing)
 
 
 @router.get("/{id}")
-async def get_properties_id(id: str, db: AsyncSession = Depends(get_db)) -> ItunesApiSongModel:
+async def get_properties_id(
+    id: str, db: AsyncSession = Depends(get_db)
+) -> ItunesApiSongModel:
     """Get song properties for a given URL"""
     song = await crud.get_song(db, id)
     if not song:
@@ -151,6 +157,7 @@ class TagBody(BaseModel):
 async def _cache_artwork(song_id: str, itunes_url: str) -> None:
     from ..artwork import fetch_and_store_artwork
     from ..database import _session_factory
+
     thumb, full = await fetch_and_store_artwork(song_id, itunes_url, config.artwork_dir)
     if thumb or full:
         async with _session_factory() as db:
@@ -181,10 +188,20 @@ async def put_properties(
 
     ext = os.path.splitext(song.file_path)[1].lower()
     if artwork_url.startswith("http"):
-        props_for_tagging = body.properties.model_copy(update={"artworkUrl100": artwork_url})
-        result = itunes.mp3ID3Tagger(song.file_path, props_for_tagging) if ext == ".mp3" else itunes.m4a_tagger(song.file_path, props_for_tagging)
+        props_for_tagging = body.properties.model_copy(
+            update={"artworkUrl100": artwork_url}
+        )
+        result = (
+            itunes.mp3ID3Tagger(song.file_path, props_for_tagging)
+            if ext == ".mp3"
+            else itunes.m4a_tagger(song.file_path, props_for_tagging)
+        )
     else:
-        result = itunes.mp3ID3TaggerNoArtwork(song.file_path, body.properties) if ext == ".mp3" else itunes.m4aID3TaggerNoArtwork(song.file_path, body.properties)
+        result = (
+            itunes.mp3ID3TaggerNoArtwork(song.file_path, body.properties)
+            if ext == ".mp3"
+            else itunes.m4aID3TaggerNoArtwork(song.file_path, body.properties)
+        )
 
     if not result:
         raise HTTPException(
@@ -197,10 +214,16 @@ async def put_properties(
     await crud.update_song_properties(db, body.song_id, props)
 
     if body.properties.artworkUrl100:
-        background_tasks.add_task(_cache_artwork, body.song_id, body.properties.artworkUrl100)
+        background_tasks.add_task(
+            _cache_artwork, body.song_id, body.properties.artworkUrl100
+        )
 
     song = await crud.get_song(db, body.song_id)
-    if song and song.owner_id == current_user.id and _is_publish_eligible(props, artwork_cached=song.artwork_thumb is not None):
+    if (
+        song
+        and song.owner_id == current_user.id
+        and _is_publish_eligible(props, artwork_cached=song.artwork_thumb is not None)
+    ):
         as_original = body.as_original and current_user.role == Role.admin
         await crud.publish_song(db, body.song_id, as_original=as_original)
 

@@ -15,20 +15,28 @@ _EDIT_PARAMS = {
 
 
 async def login(test_client: AsyncClient, user) -> dict:
-    resp = await test_client.post("/v1/auth/login", json={"username": user.username, "password": "testpass123"})
+    resp = await test_client.post(
+        "/v1/auth/login", json={"username": user.username, "password": "testpass123"}
+    )
     return dict(resp.cookies)
 
 
 async def test_save_draft(test_client: AsyncClient, regular_user, sample_song):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.put(f"/v1/edit/songs/{sample_song.uuid}/draft", json=_EDIT_PARAMS, cookies=cookies)
+    resp = await test_client.put(
+        f"/v1/edit/songs/{sample_song.uuid}/draft", json=_EDIT_PARAMS, cookies=cookies
+    )
     assert resp.status_code in (200, 204)
 
 
 async def test_get_draft(test_client: AsyncClient, regular_user, sample_song):
     cookies = await login(test_client, regular_user)
-    await test_client.put(f"/v1/edit/songs/{sample_song.uuid}/draft", json=_EDIT_PARAMS, cookies=cookies)
-    resp = await test_client.get(f"/v1/edit/songs/{sample_song.uuid}/draft", cookies=cookies)
+    await test_client.put(
+        f"/v1/edit/songs/{sample_song.uuid}/draft", json=_EDIT_PARAMS, cookies=cookies
+    )
+    resp = await test_client.get(
+        f"/v1/edit/songs/{sample_song.uuid}/draft", cookies=cookies
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["params"]["trim_start"] == 0
@@ -38,16 +46,28 @@ async def test_get_draft(test_client: AsyncClient, regular_user, sample_song):
 
 async def test_delete_draft(test_client: AsyncClient, regular_user, sample_song):
     cookies = await login(test_client, regular_user)
-    await test_client.put(f"/v1/edit/songs/{sample_song.uuid}/draft", json=_EDIT_PARAMS, cookies=cookies)
-    resp = await test_client.delete(f"/v1/edit/songs/{sample_song.uuid}/draft", cookies=cookies)
+    await test_client.put(
+        f"/v1/edit/songs/{sample_song.uuid}/draft", json=_EDIT_PARAMS, cookies=cookies
+    )
+    resp = await test_client.delete(
+        f"/v1/edit/songs/{sample_song.uuid}/draft", cookies=cookies
+    )
     assert resp.status_code == 204
 
 
-async def test_get_draft_after_delete_returns_404(test_client: AsyncClient, regular_user, sample_song):
+async def test_get_draft_after_delete_returns_404(
+    test_client: AsyncClient, regular_user, sample_song
+):
     cookies = await login(test_client, regular_user)
-    await test_client.put(f"/v1/edit/songs/{sample_song.uuid}/draft", json=_EDIT_PARAMS, cookies=cookies)
-    await test_client.delete(f"/v1/edit/songs/{sample_song.uuid}/draft", cookies=cookies)
-    resp = await test_client.get(f"/v1/edit/songs/{sample_song.uuid}/draft", cookies=cookies)
+    await test_client.put(
+        f"/v1/edit/songs/{sample_song.uuid}/draft", json=_EDIT_PARAMS, cookies=cookies
+    )
+    await test_client.delete(
+        f"/v1/edit/songs/{sample_song.uuid}/draft", cookies=cookies
+    )
+    resp = await test_client.get(
+        f"/v1/edit/songs/{sample_song.uuid}/draft", cookies=cookies
+    )
     assert resp.status_code == 404
 
 

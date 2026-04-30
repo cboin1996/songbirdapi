@@ -17,6 +17,7 @@ Usage:
     python scripts/enrich_tags.py ~/Downloads [--dry-run] [--rate-limit 0.5]
     python scripts/enrich_tags.py ~/Downloads --rename [--dry-run]
 """
+
 import argparse
 import re
 import shutil
@@ -33,8 +34,14 @@ from songbirdcore.models.itunes_api import ItunesApiSongModel
 from songbirdcore.models.modes import Modes
 
 REQUIRED_FIELDS = [
-    "trackName", "artistName", "collectionName", "artworkUrl100",
-    "primaryGenreName", "releaseDate", "collectionId", "trackNumber",
+    "trackName",
+    "artistName",
+    "collectionName",
+    "artworkUrl100",
+    "primaryGenreName",
+    "releaseDate",
+    "collectionId",
+    "trackNumber",
 ]
 
 eyed3.log.setLevel("ERROR")
@@ -66,14 +73,17 @@ def _read_m4a_tags(path: str) -> dict:
         af = MP4(path)
     except Exception:
         return {}
+
     def _get(key):
         v = af.get(key)
         return v[0] if v else ""
+
     def _get_int(key, idx=0):
         v = af.get(key)
         if v and v[0] and len(v[0]) > idx:
             return v[0][idx] or 0
         return 0
+
     return {
         "trackName": _get("\xa9nam"),
         "artistName": _get("\xa9ART"),
@@ -115,7 +125,7 @@ def find_itunes_match(tags: dict) -> ItunesApiSongModel | None:
         results = itunes.query_api(search_variable=query, limit=10, mode=Modes.SONG)
         if results is not None:
             break
-        wait = backoff * (2 ** attempt)
+        wait = backoff * (2**attempt)
         print(f"    rate limited — waiting {wait:.0f}s (attempt {attempt + 1}/5)")
         time.sleep(wait)
     if results is None:
@@ -129,13 +139,19 @@ def find_itunes_match(tags: dict) -> ItunesApiSongModel | None:
         if _norm(r.artistName) != _norm(artist_name):
             return -1
         s += 2  # base score for title+artist match
-        if tags.get("collectionName") and _norm(r.collectionName) == _norm(tags["collectionName"]):
+        if tags.get("collectionName") and _norm(r.collectionName) == _norm(
+            tags["collectionName"]
+        ):
             s += 3
         if tags.get("trackNumber") and r.trackNumber == tags["trackNumber"]:
             s += 2
-        if tags.get("releaseDate") and _year(r.releaseDate) == _year(tags["releaseDate"]):
+        if tags.get("releaseDate") and _year(r.releaseDate) == _year(
+            tags["releaseDate"]
+        ):
             s += 1
-        if tags.get("primaryGenreName") and _norm(r.primaryGenreName) == _norm(tags["primaryGenreName"]):
+        if tags.get("primaryGenreName") and _norm(r.primaryGenreName) == _norm(
+            tags["primaryGenreName"]
+        ):
             s += 1
         if tags.get("discNumber") and r.discNumber == tags["discNumber"]:
             s += 1
@@ -157,11 +173,17 @@ def backup(src: Path, backup_dir: Path) -> Path:
     return dest
 
 
-READABLE_FIELDS = [f for f in REQUIRED_FIELDS if f not in ("artworkUrl100", "collectionId")]
+READABLE_FIELDS = [
+    f for f in REQUIRED_FIELDS if f not in ("artworkUrl100", "collectionId")
+]
 
 
 def analyse(scan_dir: Path):
-    files = sorted(p for p in scan_dir.iterdir() if p.suffix.lower() in (".mp3", ".m4a") and p.parent == scan_dir)
+    files = sorted(
+        p
+        for p in scan_dir.iterdir()
+        if p.suffix.lower() in (".mp3", ".m4a") and p.parent == scan_dir
+    )
     good, bad = [], []
     for f in files:
         ext = f.suffix.lower()
@@ -171,22 +193,24 @@ def analyse(scan_dir: Path):
             bad.append((f.name, missing))
         else:
             good.append(f.name)
-    print(f"Total: {len(files)}  |  Readable tags complete: {len(good)}  |  Still gaps: {len(bad)}")
+    print(
+        f"Total: {len(files)}  |  Readable tags complete: {len(good)}  |  Still gaps: {len(bad)}"
+    )
     if bad:
         print()
         for name, missing in bad:
             print(f"  MISSING {missing}  {name}")
 
 
-_PREFIX_RE = re.compile(r'^(?:\d+-\d+|\d+)\s+')
+_PREFIX_RE = re.compile(r"^(?:\d+-\d+|\d+)\s+")
 
 
 def clean_filename_stem(stem: str) -> str:
     """Strip 'NN ' / 'N-NN ' prefix and convert trailing _ → ?"""
-    cleaned = _PREFIX_RE.sub('', stem).strip()
+    cleaned = _PREFIX_RE.sub("", stem).strip()
     # Trailing underscore is a common substitution for '?' (filesystem-safe download names).
-    if cleaned.endswith('_'):
-        cleaned = cleaned[:-1] + '?'
+    if cleaned.endswith("_"):
+        cleaned = cleaned[:-1] + "?"
     return cleaned
 
 
@@ -210,7 +234,9 @@ def _set_m4a_title(path: str, title: str) -> bool:
 
 
 def rename_pass(scan_dir: Path, dry_run: bool) -> None:
-    files = sorted(p for p in scan_dir.iterdir() if p.suffix.lower() in (".mp3", ".m4a"))
+    files = sorted(
+        p for p in scan_dir.iterdir() if p.suffix.lower() in (".mp3", ".m4a")
+    )
     print(f"Scanning {len(files)} files in {scan_dir}")
     if dry_run:
         print("DRY RUN — no files will be modified\n")
@@ -258,7 +284,11 @@ def rename_pass(scan_dir: Path, dry_run: bool) -> None:
 
         if not dry_run:
             if needs_title:
-                ok = _set_mp3_title(str(f), proposed_title) if ext == ".mp3" else _set_m4a_title(str(f), proposed_title)
+                ok = (
+                    _set_mp3_title(str(f), proposed_title)
+                    if ext == ".mp3"
+                    else _set_m4a_title(str(f), proposed_title)
+                )
                 if not ok:
                     print(f"    ERR: could not set title")
                     continue
@@ -268,8 +298,10 @@ def rename_pass(scan_dir: Path, dry_run: bool) -> None:
                 renamed += 1
                 used_targets.add(target)
         else:
-            if target != f: renamed += 1
-            if needs_title: title_set += 1
+            if target != f:
+                renamed += 1
+            if needs_title:
+                title_set += 1
             used_targets.add(target)
 
     print(f"\n--- Rename summary{' (dry run)' if dry_run else ''} ---")
@@ -283,10 +315,23 @@ def main():
     parser = argparse.ArgumentParser(description="Enrich mp3/m4a tags via iTunes API")
     parser.add_argument("directory", help="Directory to scan")
     parser.add_argument("--dry-run", action="store_true", help="Don't modify files")
-    parser.add_argument("--analyse", action="store_true", help="Report tag gaps only, no iTunes lookups")
-    parser.add_argument("--rename", action="store_true", help="Strip filename prefixes; for files lacking trackName tag, set tag.title from cleaned filename. No iTunes calls.")
-    parser.add_argument("--rate-limit", type=float, default=1.0, help="Seconds between iTunes API calls (default 1.0)")
-    parser.add_argument("--limit", type=int, default=None, help="Max number of files to process")
+    parser.add_argument(
+        "--analyse", action="store_true", help="Report tag gaps only, no iTunes lookups"
+    )
+    parser.add_argument(
+        "--rename",
+        action="store_true",
+        help="Strip filename prefixes; for files lacking trackName tag, set tag.title from cleaned filename. No iTunes calls.",
+    )
+    parser.add_argument(
+        "--rate-limit",
+        type=float,
+        default=1.0,
+        help="Seconds between iTunes API calls (default 1.0)",
+    )
+    parser.add_argument(
+        "--limit", type=int, default=None, help="Max number of files to process"
+    )
     args = parser.parse_args()
 
     scan_dir = Path(args.directory).expanduser().resolve()
@@ -308,12 +353,18 @@ def main():
     )
 
     if args.limit:
-        files = files[:args.limit]
+        files = files[: args.limit]
     print(f"Scanning {len(files)} files in {scan_dir}")
     if args.dry_run:
         print("DRY RUN — no files will be modified\n")
 
-    results = {"skipped": [], "tagged": [], "no_match": [], "failed": [], "already_good": []}
+    results = {
+        "skipped": [],
+        "tagged": [],
+        "no_match": [],
+        "failed": [],
+        "already_good": [],
+    }
     already_good_snapshots: dict[str, dict] = {}
 
     for f in files:
@@ -331,7 +382,9 @@ def main():
             already_good_snapshots[str(f)] = tags
             continue
 
-        print(f"  SEARCHING iTunes...   {f.name}  [{tags.get('trackName')} - {tags.get('artistName')}]")
+        print(
+            f"  SEARCHING iTunes...   {f.name}  [{tags.get('trackName')} - {tags.get('artistName')}]"
+        )
         time.sleep(args.rate_limit)
 
         match = find_itunes_match(tags)
@@ -340,7 +393,9 @@ def main():
             results["no_match"].append(f.name)
             continue
 
-        print(f"  MATCH: {match.trackName} — {match.artistName} ({match.collectionName}, {match.releaseDate})")
+        print(
+            f"  MATCH: {match.trackName} — {match.artistName} ({match.collectionName}, {match.releaseDate})"
+        )
 
         if args.dry_run:
             results["tagged"].append(f.name)
@@ -377,7 +432,9 @@ def main():
         p = Path(path_str)
         ext = p.suffix.lower()
         after = _read_mp3_tags(path_str) if ext == ".mp3" else _read_m4a_tags(path_str)
-        changed = {k: (before[k], after[k]) for k in before if before.get(k) != after.get(k)}
+        changed = {
+            k: (before[k], after[k]) for k in before if before.get(k) != after.get(k)
+        }
         if changed:
             print(f"  ASSERTION FAIL {p.name}: {changed}")
             assertion_failures.append(f"unchanged:{p.name}")
@@ -391,7 +448,9 @@ def main():
         ext = p.suffix.lower()
         after = _read_mp3_tags(str(p)) if ext == ".mp3" else _read_m4a_tags(str(p))
         # artworkUrl100 won't be readable from file tags — check other required fields
-        bar_fields = [f for f in REQUIRED_FIELDS if f != "artworkUrl100" and f != "collectionId"]
+        bar_fields = [
+            f for f in REQUIRED_FIELDS if f != "artworkUrl100" and f != "collectionId"
+        ]
         missing = [f for f in bar_fields if not bool(after.get(f))]
         if missing:
             print(f"  ASSERTION FAIL {name}: still missing {missing}")

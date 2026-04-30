@@ -54,11 +54,16 @@ async def list_playlists(
     results = []
     for pl in playlists:
         songs = await crud.get_playlist_songs(db, pl.id)
-        results.append(PlaylistResponse(
-            id=pl.id, name=pl.name, icon=pl.icon,
-            created_at=pl.created_at, updated_at=pl.updated_at,
-            song_count=len(songs),
-        ))
+        results.append(
+            PlaylistResponse(
+                id=pl.id,
+                name=pl.name,
+                icon=pl.icon,
+                created_at=pl.created_at,
+                updated_at=pl.updated_at,
+                song_count=len(songs),
+            )
+        )
     return results
 
 
@@ -68,8 +73,16 @@ async def create_playlist(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    pl = await crud.create_playlist(db, current_user.id, body.name.strip() or "untitled", body.icon)
-    return PlaylistResponse(id=pl.id, name=pl.name, icon=pl.icon, created_at=pl.created_at, updated_at=pl.updated_at)
+    pl = await crud.create_playlist(
+        db, current_user.id, body.name.strip() or "untitled", body.icon
+    )
+    return PlaylistResponse(
+        id=pl.id,
+        name=pl.name,
+        icon=pl.icon,
+        created_at=pl.created_at,
+        updated_at=pl.updated_at,
+    )
 
 
 @router.patch("/{playlist_id}", response_model=PlaylistResponse)
@@ -84,7 +97,14 @@ async def rename_playlist(
         raise HTTPException(status_code=404, detail="Playlist not found")
     pl = await crud.rename_playlist(db, playlist_id, body.name, body.icon)
     songs = await crud.get_playlist_songs(db, playlist_id)
-    return PlaylistResponse(id=pl.id, name=pl.name, icon=pl.icon, created_at=pl.created_at, updated_at=pl.updated_at, song_count=len(songs))
+    return PlaylistResponse(
+        id=pl.id,
+        name=pl.name,
+        icon=pl.icon,
+        created_at=pl.created_at,
+        updated_at=pl.updated_at,
+        song_count=len(songs),
+    )
 
 
 @router.delete("/{playlist_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -153,10 +173,15 @@ async def bulk_add_songs_to_playlist(
     current_user: User = Depends(get_current_user),
 ):
     if not body.song_uuids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="song_uuids must not be empty")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="song_uuids must not be empty",
+        )
     pl = await crud.get_playlist(db, playlist_id)
     if not pl:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playlist not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Playlist not found"
+        )
     if pl.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     await crud.bulk_add_songs_to_playlist(db, playlist_id, body.song_uuids)
@@ -170,14 +195,19 @@ async def bulk_remove_songs_from_playlist(
     current_user: User = Depends(get_current_user),
 ):
     if not body.song_uuids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="song_uuids must not be empty")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="song_uuids must not be empty",
+        )
     pl = await crud.get_playlist(db, playlist_id)
     if not pl or pl.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Playlist not found")
     await crud.bulk_remove_songs_from_playlist(db, playlist_id, body.song_uuids)
 
 
-@router.delete("/{playlist_id}/songs/{song_uuid}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{playlist_id}/songs/{song_uuid}", status_code=status.HTTP_204_NO_CONTENT
+)
 async def remove_song_from_playlist(
     playlist_id: str,
     song_uuid: str,

@@ -39,7 +39,9 @@ async def create_share_link(
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
     entry = await crud.create_share_token(db, song_id, current_user.id)
-    return ShareTokenResponse(token=entry.token, expires_at=entry.expires_at.isoformat())
+    return ShareTokenResponse(
+        token=entry.token, expires_at=entry.expires_at.isoformat()
+    )
 
 
 def _validate_token(entry, token: str):
@@ -65,7 +67,9 @@ async def get_share_info(token: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{token}/download")
-async def download_shared(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def download_shared(
+    token: str, request: Request, db: AsyncSession = Depends(get_db)
+):
     entry = await crud.get_share_token(db, token)
     _validate_token(entry, token)
     song = await crud.get_song(db, entry.song_id)

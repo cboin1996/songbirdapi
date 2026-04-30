@@ -20,7 +20,7 @@ class QueueSource(BaseModel):
 
 class PlayerState(BaseModel):
     shuffle: bool
-    repeat: Literal['off', 'one', 'all']
+    repeat: Literal["off", "one", "all"]
     queue: list[str] = Field(default_factory=list, max_length=2000)
     queue_index: int
     shuffle_order: list[int] | None = None
@@ -55,7 +55,7 @@ async def get_state(
 ):
     state = await crud.get_player_state(db, current_user.id)
     if state is None:
-        return PlayerState(shuffle=False, repeat='off', queue=[], queue_index=-1)
+        return PlayerState(shuffle=False, repeat="off", queue=[], queue_index=-1)
     return _serialize(state)
 
 
@@ -66,7 +66,8 @@ async def update_state(
     db: AsyncSession = Depends(get_db),
 ):
     state = await crud.upsert_player_state(
-        db, current_user.id,
+        db,
+        current_user.id,
         body.shuffle,
         RepeatMode(body.repeat),
         body.queue,

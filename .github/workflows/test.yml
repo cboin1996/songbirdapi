@@ -46,13 +46,13 @@ jobs:
       - name: Run migrations
         env:
           ENV: test
-          SONGBIRD_PG_HOST: localhost
-          SONGBIRD_PG_PORT: 5432
-          SONGBIRD_PG_USER: songbirdapi
-          SONGBIRD_PG_PASSWORD: songbirdapi
-          SONGBIRD_PG_DATABASE: songbirdapi
-          SONGBIRD_API_KEY: test-key
-          SONGBIRD_JWT_SECRET: test-secret
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: songbirdapi
+          POSTGRES_PASSWORD: songbirdapi
+          POSTGRES_DB: songbirdapi
+          API_KEY: test-key
+          JWT_SECRET: test-secret
         run: make migrate
 
       - name: Lint
@@ -65,11 +65,11 @@ jobs:
         env:
           ENV: test
           CI: true
-          SONGBIRD_PG_HOST: localhost
-          SONGBIRD_PG_PORT: 5432
-          SONGBIRD_PG_USER: songbirdapi
-          SONGBIRD_PG_PASSWORD: songbirdapi
-          SONGBIRD_PG_DATABASE: songbirdapi
-          SONGBIRD_API_KEY: test-key
-          SONGBIRD_JWT_SECRET: test-secret
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: songbirdapi
+          POSTGRES_PASSWORD: songbirdapi
+          POSTGRES_DB: songbirdapi
+          API_KEY: test-key
+          JWT_SECRET: test-secret
         run: make test-integration

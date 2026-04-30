@@ -1,4 +1,5 @@
 """Unit tests for editor filter-string construction. No ffmpeg required."""
+
 import pytest
 
 from songbirdapi.editor import (
@@ -7,7 +8,6 @@ from songbirdapi.editor import (
     _apply_with_cuts,
     _apply_simple,
 )
-
 
 # ---------------------------------------------------------------------------
 # _orig_to_buf_offset
@@ -129,10 +129,14 @@ async def test_cut_with_fade_out_filter_string(monkeypatch):
 
     cuts = [{"start": 10.0, "end": 20.0, "fade_out": 2.0, "fade_in": 0.0}]
     await _apply_with_cuts(
-        "src.mp3", "dst.mp3",
-        trim_start=0.0, trim_end=None,
-        volume=1.0, fades=[],
-        speed=1.0, normalize=False,
+        "src.mp3",
+        "dst.mp3",
+        trim_start=0.0,
+        trim_end=None,
+        volume=1.0,
+        fades=[],
+        speed=1.0,
+        normalize=False,
         cuts=cuts,
     )
 
@@ -158,10 +162,14 @@ async def test_cut_with_fade_in_filter_string(monkeypatch):
 
     cuts = [{"start": 10.0, "end": 20.0, "fade_out": 0.0, "fade_in": 3.0}]
     await _apply_with_cuts(
-        "src.mp3", "dst.mp3",
-        trim_start=0.0, trim_end=None,
-        volume=1.0, fades=[],
-        speed=1.0, normalize=False,
+        "src.mp3",
+        "dst.mp3",
+        trim_start=0.0,
+        trim_end=None,
+        volume=1.0,
+        fades=[],
+        speed=1.0,
+        normalize=False,
         cuts=cuts,
     )
 
@@ -185,10 +193,14 @@ async def test_cut_with_both_fades_filter_string(monkeypatch):
 
     cuts = [{"start": 10.0, "end": 20.0, "fade_out": 2.0, "fade_in": 3.0}]
     await _apply_with_cuts(
-        "src.mp3", "dst.mp3",
-        trim_start=0.0, trim_end=None,
-        volume=1.0, fades=[],
-        speed=1.0, normalize=False,
+        "src.mp3",
+        "dst.mp3",
+        trim_start=0.0,
+        trim_end=None,
+        volume=1.0,
+        fades=[],
+        speed=1.0,
+        normalize=False,
         cuts=cuts,
     )
 
@@ -207,11 +219,13 @@ async def test_single_segment_cut_at_start(monkeypatch):
     original_apply_simple = _apply_simple
 
     async def fake_simple(src, dst, trim_s, trim_e, vol, fades, speed, norm):
-        simple_calls.append({
-            "trim_start": trim_s,
-            "trim_end": trim_e,
-            "fades": fades,
-        })
+        simple_calls.append(
+            {
+                "trim_start": trim_s,
+                "trim_end": trim_e,
+                "fades": fades,
+            }
+        )
 
     monkeypatch.setattr("songbirdapi.editor._apply_simple", fake_simple)
     monkeypatch.setattr(
@@ -220,10 +234,14 @@ async def test_single_segment_cut_at_start(monkeypatch):
 
     cuts = [{"start": 0.0, "end": 10.0, "fade_out": 0.0, "fade_in": 2.0}]
     await _apply_with_cuts(
-        "src.mp3", "dst.mp3",
-        trim_start=0.0, trim_end=None,
-        volume=1.0, fades=[],
-        speed=1.0, normalize=False,
+        "src.mp3",
+        "dst.mp3",
+        trim_start=0.0,
+        trim_end=None,
+        volume=1.0,
+        fades=[],
+        speed=1.0,
+        normalize=False,
         cuts=cuts,
     )
 
@@ -244,11 +262,13 @@ async def test_single_segment_cut_at_end(monkeypatch):
     simple_calls = []
 
     async def fake_simple(src, dst, trim_s, trim_e, vol, fades, speed, norm):
-        simple_calls.append({
-            "trim_start": trim_s,
-            "trim_end": trim_e,
-            "fades": fades,
-        })
+        simple_calls.append(
+            {
+                "trim_start": trim_s,
+                "trim_end": trim_e,
+                "fades": fades,
+            }
+        )
 
     monkeypatch.setattr("songbirdapi.editor._apply_simple", fake_simple)
     monkeypatch.setattr(
@@ -257,10 +277,14 @@ async def test_single_segment_cut_at_end(monkeypatch):
 
     cuts = [{"start": 50.0, "end": 60.0, "fade_out": 3.0, "fade_in": 0.0}]
     await _apply_with_cuts(
-        "src.mp3", "dst.mp3",
-        trim_start=0.0, trim_end=None,
-        volume=1.0, fades=[],
-        speed=1.0, normalize=False,
+        "src.mp3",
+        "dst.mp3",
+        trim_start=0.0,
+        trim_end=None,
+        volume=1.0,
+        fades=[],
+        speed=1.0,
+        normalize=False,
         cuts=cuts,
     )
 
@@ -286,6 +310,7 @@ async def test_standalone_fade_no_cuts(monkeypatch):
     monkeypatch.setattr("songbirdapi.editor._run_ffmpeg", fake_run)
 
     from songbirdapi.editor import apply_edits
+
     params = {
         "fades": [{"start": 55.0, "end": 60.0, "type": "out"}],
         "volume": 1.0,
@@ -317,6 +342,7 @@ async def test_standalone_fade_with_cuts(monkeypatch):
     )
 
     from songbirdapi.editor import apply_edits
+
     params = {
         "fades": [{"start": 55.0, "end": 60.0, "type": "out"}],
         "volume": 1.0,

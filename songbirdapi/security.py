@@ -18,12 +18,18 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(subject: str, role: str, secret: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    return jwt.encode({"sub": subject, "role": role, "exp": expire, "type": "access"}, secret, algorithm=ALGORITHM)
+    return jwt.encode(
+        {"sub": subject, "role": role, "exp": expire, "type": "access"},
+        secret,
+        algorithm=ALGORITHM,
+    )
 
 
 def create_refresh_token(subject: str, secret: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    return jwt.encode({"sub": subject, "exp": expire, "type": "refresh"}, secret, algorithm=ALGORITHM)
+    return jwt.encode(
+        {"sub": subject, "exp": expire, "type": "refresh"}, secret, algorithm=ALGORITHM
+    )
 
 
 def decode_token(token: str, secret: str) -> dict:

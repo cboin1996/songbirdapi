@@ -4,7 +4,13 @@ import json
 
 async def _get_duration(path: str) -> float:
     proc = await asyncio.create_subprocess_exec(
-        "ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", path,
+        "ffprobe",
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_streams",
+        path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -61,12 +67,12 @@ def _build_volume_and_fades_filter(
     """
     fade_factors: list[str] = []
     for fade in fades:
-        bs = _orig_to_buf_offset(float(fade['start']), segs)
-        be = _orig_to_buf_offset(float(fade['end']), segs)
+        bs = _orig_to_buf_offset(float(fade["start"]), segs)
+        be = _orig_to_buf_offset(float(fade["end"]), segs)
         dur = be - bs
         if dur <= 0:
             continue
-        if fade['type'] == 'in':
+        if fade["type"] == "in":
             # 1 before bs, ramp 0→1 from bs to be, 1 after be
             fade_factors.append(
                 f"if(lt(t,{bs:.6f}),1,if(lt(t,{be:.6f}),(t-{bs:.6f})/{dur:.6f},1))"
@@ -97,22 +103,53 @@ async def apply_edits(source_path: str, dest_path: str, params: dict) -> None:
     trim_start: float = params.get("trim_start") or 0.0
     trim_end: float | None = params.get("trim_end")
     volume: float = params.get("volume") or 1.0
-    fades: list[dict] = [f for f in (params.get("fades") or []) if float(f.get("end", 0)) > float(f.get("start", 0))]
+    fades: list[dict] = [
+        f
+        for f in (params.get("fades") or [])
+        if float(f.get("end", 0)) > float(f.get("start", 0))
+    ]
     speed: float = params.get("speed") or 1.0
     normalize: bool = params.get("normalize") or False
-    cuts: list[dict] = [c for c in (params.get("cuts") or []) if float(c.get("end", 0)) > float(c.get("start", 0))]
+    cuts: list[dict] = [
+        c
+        for c in (params.get("cuts") or [])
+        if float(c.get("end", 0)) > float(c.get("start", 0))
+    ]
 
     if cuts:
-        await _apply_with_cuts(source_path, dest_path, trim_start, trim_end, volume, fades, speed, normalize, cuts)
+        await _apply_with_cuts(
+            source_path,
+            dest_path,
+            trim_start,
+            trim_end,
+            volume,
+            fades,
+            speed,
+            normalize,
+            cuts,
+        )
     else:
-        await _apply_simple(source_path, dest_path, trim_start, trim_end, volume, fades, speed, normalize)
+        await _apply_simple(
+            source_path,
+            dest_path,
+            trim_start,
+            trim_end,
+            volume,
+            fades,
+            speed,
+            normalize,
+        )
 
 
 async def _apply_simple(
-    source_path: str, dest_path: str,
-    trim_start: float, trim_end: float | None,
-    volume: float, fades: list[dict],
-    speed: float, normalize: bool,
+    source_path: str,
+    dest_path: str,
+    trim_start: float,
+    trim_end: float | None,
+    volume: float,
+    fades: list[dict],
+    speed: float,
+    normalize: bool,
 ) -> None:
     cmd = ["ffmpeg", "-y"]
     if trim_start > 0:
@@ -140,10 +177,14 @@ async def _apply_simple(
 
 
 async def _apply_with_cuts(
-    source_path: str, dest_path: str,
-    trim_start: float, trim_end: float | None,
-    volume: float, fades: list[dict],
-    speed: float, normalize: bool,
+    source_path: str,
+    dest_path: str,
+    trim_start: float,
+    trim_end: float | None,
+    volume: float,
+    fades: list[dict],
+    speed: float,
+    normalize: bool,
     cuts: list[dict],
 ) -> None:
     source_dur = trim_end if trim_end is not None else await _get_duration(source_path)
@@ -178,10 +219,12 @@ async def _apply_with_cuts(
         # Merge per-cut fades with global fades for single-segment case
         merged_fades = list(fades)
         if fi > 0:
-            merged_fades.insert(0, {'start': s, 'end': s + fi, 'type': 'in'})
+            merged_fades.insert(0, {"start": s, "end": s + fi, "type": "in"})
         if fo > 0:
-            merged_fades.append({'start': e - fo, 'end': e, 'type': 'out'})
-        await _apply_simple(source_path, dest_path, s, e, volume, merged_fades, speed, normalize)
+            merged_fades.append({"start": e - fo, "end": e, "type": "out"})
+        await _apply_simple(
+            source_path, dest_path, s, e, volume, merged_fades, speed, normalize
+        )
         return
 
     # filter_complex: per-segment atrim + optional per-cut afades, then concat, then global filters
@@ -194,7 +237,9 @@ async def _apply_with_cuts(
         if fo > 0:
             per_seg.append(f"afade=t=out:st={s + max(0.0, seg_dur - fo):.4f}:d={fo}")
         fades_str = "," + ",".join(per_seg) if per_seg else ""
-        parts.append(f"[0:a]atrim=start={s}:end={e}{fades_str},asetpts=PTS-STARTPTS[s{i}]")
+        parts.append(
+            f"[0:a]atrim=start={s}:end={e}{fades_str},asetpts=PTS-STARTPTS[s{i}]"
+        )
 
     n = len(segments)
     concat = "".join(f"[s{i}]" for i in range(n)) + f"concat=n={n}:v=0:a=1[cat]"
@@ -215,7 +260,22 @@ async def _apply_with_cuts(
         fc = ";".join(parts) + ";" + concat
         map_arg = "[cat]"
 
-    cmd = ["ffmpeg", "-y", "-i", source_path, "-filter_complex", fc, "-map", map_arg, "-vn", "-c:a", "libmp3lame", "-q:a", "0", dest_path]
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        source_path,
+        "-filter_complex",
+        fc,
+        "-map",
+        map_arg,
+        "-vn",
+        "-c:a",
+        "libmp3lame",
+        "-q:a",
+        "0",
+        dest_path,
+    ]
     await _run_ffmpeg(cmd)
 
 

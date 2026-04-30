@@ -5,7 +5,9 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
 async def login(test_client: AsyncClient, user) -> dict:
-    resp = await test_client.post("/v1/auth/login", json={"username": user.username, "password": "testpass123"})
+    resp = await test_client.post(
+        "/v1/auth/login", json={"username": user.username, "password": "testpass123"}
+    )
     return dict(resp.cookies)
 
 
@@ -21,7 +23,9 @@ async def test_list_songs(test_client: AsyncClient, regular_user):
     assert isinstance(resp.json(), list)
 
 
-async def test_library_songs_contains_uuid(test_client: AsyncClient, regular_user, sample_song):
+async def test_library_songs_contains_uuid(
+    test_client: AsyncClient, regular_user, sample_song
+):
     cookies = await login(test_client, regular_user)
     await test_client.post(f"/v1/library/{sample_song.uuid}", cookies=cookies)
     resp = await test_client.get("/v1/songs/library", cookies=cookies)
@@ -72,8 +76,11 @@ async def test_record_play_requires_auth(test_client: AsyncClient, sample_song):
 # GET /{id}/artwork
 # ---------------------------------------------------------------------------
 
+
 async def test_get_artwork_not_found_song(test_client: AsyncClient):
-    resp = await test_client.get("/v1/songs/00000000-0000-0000-0000-000000000000/artwork/full")
+    resp = await test_client.get(
+        "/v1/songs/00000000-0000-0000-0000-000000000000/artwork/full"
+    )
     assert resp.status_code == 404
 
 
@@ -86,6 +93,7 @@ async def test_get_artwork_no_cached_artwork(test_client: AsyncClient, sample_so
 # ---------------------------------------------------------------------------
 # POST /{id}/artwork
 # ---------------------------------------------------------------------------
+
 
 async def test_upload_artwork_requires_auth(test_client: AsyncClient, sample_song):
     resp = await test_client.post(
@@ -105,7 +113,9 @@ async def test_upload_artwork_song_not_found(test_client: AsyncClient, regular_u
     assert resp.status_code == 404
 
 
-async def test_upload_artwork_invalid_file(test_client: AsyncClient, regular_user, sample_song):
+async def test_upload_artwork_invalid_file(
+    test_client: AsyncClient, regular_user, sample_song
+):
     cookies = await login(test_client, regular_user)
     resp = await test_client.post(
         f"/v1/songs/{sample_song.uuid}/artwork",

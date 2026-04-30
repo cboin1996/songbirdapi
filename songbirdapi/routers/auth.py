@@ -51,12 +51,18 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
 
 
 @router.post("/login")
-async def login(body: LoginBody, response: Response, db: AsyncSession = Depends(get_db)):
+async def login(
+    body: LoginBody, response: Response, db: AsyncSession = Depends(get_db)
+):
     user = await crud.get_user_by_username(db, body.username)
     if not user or not verify_password(body.password, user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+        )
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled"
+        )
 
     config = load_settings()
     access_token = create_access_token(user.id, user.role.value, config.jwt_secret)
@@ -78,7 +84,9 @@ async def refresh(
     refresh_token: Optional[str] = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ):
-    credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+    )
     if not refresh_token:
         raise credentials_exception
     config = load_settings()
@@ -106,9 +114,13 @@ async def register(
     _: User = Depends(require_admin),
 ) -> UserResponse:
     if await crud.get_user_by_username(db, body.username):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already taken")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Username already taken"
+        )
     if await crud.get_user_by_email(db, body.email):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
+        )
 
     user = User(
         id=str(uuid.uuid4()),
@@ -138,6 +150,8 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
 ):
     if not verify_password(body.current_password, current_user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password"
+        )
     current_user.hashed_password = hash_password(body.new_password)
     await db.commit()

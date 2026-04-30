@@ -20,18 +20,25 @@ _VALID_PROPERTIES = {
 
 
 async def login(test_client: AsyncClient, user) -> dict:
-    resp = await test_client.post("/v1/auth/login", json={"username": user.username, "password": "testpass123"})
+    resp = await test_client.post(
+        "/v1/auth/login", json={"username": user.username, "password": "testpass123"}
+    )
     return dict(resp.cookies)
 
 
 async def test_search_properties(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.get("/v1/properties", params={"query": "test"}, cookies=cookies)
+    resp = await test_client.get(
+        "/v1/properties", params={"query": "test"}, cookies=cookies
+    )
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
 
 
-@pytest.mark.xfail(reason="sample_song fixture has fake file_path; source returns 500 when file missing instead of 422/409 (routers/properties.py:175). Needs real-mp3 fixture or graceful error.", strict=True)
+@pytest.mark.xfail(
+    reason="sample_song fixture has fake file_path; source returns 500 when file missing instead of 422/409 (routers/properties.py:175). Needs real-mp3 fixture or graceful error.",
+    strict=True,
+)
 async def test_put_properties(test_client: AsyncClient, regular_user, sample_song):
     cookies = await login(test_client, regular_user)
     resp = await test_client.put(
@@ -46,6 +53,7 @@ async def test_put_properties(test_client: AsyncClient, regular_user, sample_son
 # ---------------------------------------------------------------------------
 # Auth required
 # ---------------------------------------------------------------------------
+
 
 async def test_search_properties_requires_auth(test_client: AsyncClient):
     resp = await test_client.get("/v1/properties", params={"query": "test"})
@@ -64,13 +72,18 @@ async def test_put_properties_requires_auth(test_client: AsyncClient, sample_son
 # GET /{id}
 # ---------------------------------------------------------------------------
 
+
 async def test_get_properties_by_id_not_found(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.get("/v1/properties/00000000-0000-0000-0000-000000000000", cookies=cookies)
+    resp = await test_client.get(
+        "/v1/properties/00000000-0000-0000-0000-000000000000", cookies=cookies
+    )
     assert resp.status_code == 404
 
 
-async def test_get_properties_by_id_no_properties(test_client: AsyncClient, regular_user, sample_song):
+async def test_get_properties_by_id_no_properties(
+    test_client: AsyncClient, regular_user, sample_song
+):
     # sample_song has no properties set initially — after put_properties test above it does,
     # so this verifies the song exists but we test a fresh song with no props
     cookies = await login(test_client, regular_user)
@@ -80,7 +93,9 @@ async def test_get_properties_by_id_no_properties(test_client: AsyncClient, regu
     assert resp.status_code in (200, 404)
 
 
-async def test_get_properties_by_id_requires_auth(test_client: AsyncClient, sample_song):
+async def test_get_properties_by_id_requires_auth(
+    test_client: AsyncClient, sample_song
+):
     resp = await test_client.get(f"/v1/properties/{sample_song.uuid}")
     assert resp.status_code == 401
 
@@ -89,11 +104,15 @@ async def test_get_properties_by_id_requires_auth(test_client: AsyncClient, samp
 # PUT / — 404 for missing song
 # ---------------------------------------------------------------------------
 
+
 async def test_put_properties_song_not_found(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
     resp = await test_client.put(
         "/v1/properties",
-        json={"song_id": "00000000-0000-0000-0000-000000000000", "properties": _VALID_PROPERTIES},
+        json={
+            "song_id": "00000000-0000-0000-0000-000000000000",
+            "properties": _VALID_PROPERTIES,
+        },
         cookies=cookies,
     )
     assert resp.status_code == 404
@@ -103,6 +122,7 @@ async def test_put_properties_song_not_found(test_client: AsyncClient, regular_u
 # GET /itunes
 # ---------------------------------------------------------------------------
 
+
 async def test_get_itunes_requires_auth(test_client: AsyncClient):
     resp = await test_client.get("/v1/properties/itunes", params={"query": "test"})
     assert resp.status_code == 401
@@ -110,7 +130,9 @@ async def test_get_itunes_requires_auth(test_client: AsyncClient):
 
 async def test_get_itunes_returns_list(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.get("/v1/properties/itunes", params={"query": "test song"}, cookies=cookies)
+    resp = await test_client.get(
+        "/v1/properties/itunes", params={"query": "test song"}, cookies=cookies
+    )
     # itunes API may or may not be reachable in test env; accept 200 or 5xx
     assert resp.status_code in (200, 500, 502, 503)
     if resp.status_code == 200:

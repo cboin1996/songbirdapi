@@ -4,18 +4,23 @@ from httpx import AsyncClient
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 MINIMAL_MP3 = (
-    b'ID3\x03\x00\x00\x00\x00\x00\x00'  # ID3v2 header, empty tags
-    + b'\xff\xfb\x90\x00' + b'\x00' * 413  # MP3 frame header + padding
+    b"ID3\x03\x00\x00\x00\x00\x00\x00"  # ID3v2 header, empty tags
+    + b"\xff\xfb\x90\x00"
+    + b"\x00" * 413  # MP3 frame header + padding
 )
 
 
 async def login(test_client: AsyncClient, user) -> dict:
-    resp = await test_client.post("/v1/auth/login", json={"username": user.username, "password": "testpass123"})
+    resp = await test_client.post(
+        "/v1/auth/login", json={"username": user.username, "password": "testpass123"}
+    )
     return dict(resp.cookies)
 
 
 async def test_start_import_requires_auth(test_client: AsyncClient):
-    resp = await test_client.post("/v1/import", files={"file": ("song.mp3", MINIMAL_MP3, "audio/mpeg")})
+    resp = await test_client.post(
+        "/v1/import", files={"file": ("song.mp3", MINIMAL_MP3, "audio/mpeg")}
+    )
     assert resp.status_code == 401
 
 
@@ -125,7 +130,9 @@ async def test_list_imports_pagination(test_client: AsyncClient, regular_user):
     assert len(body["jobs"]) <= 1
 
 
-async def test_import_job_not_visible_to_other_user(test_client: AsyncClient, regular_user, admin_user):
+async def test_import_job_not_visible_to_other_user(
+    test_client: AsyncClient, regular_user, admin_user
+):
     reg_cookies = await login(test_client, regular_user)
     post = await test_client.post(
         "/v1/import",

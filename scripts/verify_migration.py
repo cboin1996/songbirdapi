@@ -30,7 +30,11 @@ async def verify(
 ):
     r = aioredis.Redis(host=redis_host, port=redis_port, decode_responses=True)
     pg = await asyncpg.connect(
-        host=pg_host, port=pg_port, database=pg_db, user=pg_user, password=pg_password,
+        host=pg_host,
+        port=pg_port,
+        database=pg_db,
+        user=pg_user,
+        password=pg_password,
     )
 
     redis_keys = await r.keys("properties:*")
@@ -59,7 +63,9 @@ async def verify(
             continue
 
         if raw.get("url") != pg_row["url"]:
-            print(f"  FAIL {uuid}: url mismatch — redis={raw.get('url')} pg={pg_row['url']}")
+            print(
+                f"  FAIL {uuid}: url mismatch — redis={raw.get('url')} pg={pg_row['url']}"
+            )
             failed += 1
             continue
 
@@ -79,7 +85,9 @@ async def verify(
     redis_uuids = {k.removeprefix("properties:") for k in redis_keys}
     orphans = [row["uuid"] for row in pg_rows if row["uuid"] not in redis_uuids]
     if orphans:
-        print(f"\n  WARN: {len(orphans)} rows in Postgres not found in Redis: {orphans}")
+        print(
+            f"\n  WARN: {len(orphans)} rows in Postgres not found in Redis: {orphans}"
+        )
 
     await r.aclose()
     await pg.close()
@@ -91,18 +99,29 @@ async def verify(
 def main():
     parser = argparse.ArgumentParser(description="Verify Redis → Postgres migration")
     parser.add_argument("--redis-host", default=os.getenv("REDIS_HOST", "localhost"))
-    parser.add_argument("--redis-port", type=int, default=int(os.getenv("REDIS_PORT", "6379")))
+    parser.add_argument(
+        "--redis-port", type=int, default=int(os.getenv("REDIS_PORT", "6379"))
+    )
     parser.add_argument("--pg-host", default=os.getenv("POSTGRES_HOST", "localhost"))
-    parser.add_argument("--pg-port", type=int, default=int(os.getenv("POSTGRES_PORT", "5432")))
+    parser.add_argument(
+        "--pg-port", type=int, default=int(os.getenv("POSTGRES_PORT", "5432"))
+    )
     parser.add_argument("--pg-db", default=os.getenv("POSTGRES_DB", "songbirdapi"))
     parser.add_argument("--pg-user", default=os.getenv("POSTGRES_USER", "songbirdapi"))
     parser.add_argument("--pg-password", default=os.getenv("POSTGRES_PASSWORD", ""))
     args = parser.parse_args()
 
-    ok = asyncio.run(verify(
-        args.redis_host, args.redis_port,
-        args.pg_host, args.pg_port, args.pg_db, args.pg_user, args.pg_password,
-    ))
+    ok = asyncio.run(
+        verify(
+            args.redis_host,
+            args.redis_port,
+            args.pg_host,
+            args.pg_port,
+            args.pg_db,
+            args.pg_user,
+            args.pg_password,
+        )
+    )
     raise SystemExit(0 if ok else 1)
 
 

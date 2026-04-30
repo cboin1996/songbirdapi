@@ -30,7 +30,11 @@ async def migrate(
 
     if not dry_run:
         pg = await asyncpg.connect(
-            host=pg_host, port=pg_port, database=pg_db, user=pg_user, password=pg_password,
+            host=pg_host,
+            port=pg_port,
+            database=pg_db,
+            user=pg_user,
+            password=pg_password,
         )
 
     keys = await r.keys("properties:*")
@@ -92,19 +96,30 @@ def main():
     parser = argparse.ArgumentParser(description="Migrate Redis → PostgreSQL")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--redis-host", default=os.getenv("REDIS_HOST", "localhost"))
-    parser.add_argument("--redis-port", type=int, default=int(os.getenv("REDIS_PORT", "6379")))
+    parser.add_argument(
+        "--redis-port", type=int, default=int(os.getenv("REDIS_PORT", "6379"))
+    )
     parser.add_argument("--pg-host", default=os.getenv("POSTGRES_HOST", "localhost"))
-    parser.add_argument("--pg-port", type=int, default=int(os.getenv("POSTGRES_PORT", "5432")))
+    parser.add_argument(
+        "--pg-port", type=int, default=int(os.getenv("POSTGRES_PORT", "5432"))
+    )
     parser.add_argument("--pg-db", default=os.getenv("POSTGRES_DB", "songbirdapi"))
     parser.add_argument("--pg-user", default=os.getenv("POSTGRES_USER", "songbirdapi"))
     parser.add_argument("--pg-password", default=os.getenv("POSTGRES_PASSWORD", ""))
     args = parser.parse_args()
 
-    asyncio.run(migrate(
-        args.dry_run,
-        args.redis_host, args.redis_port,
-        args.pg_host, args.pg_port, args.pg_db, args.pg_user, args.pg_password,
-    ))
+    asyncio.run(
+        migrate(
+            args.dry_run,
+            args.redis_host,
+            args.redis_port,
+            args.pg_host,
+            args.pg_port,
+            args.pg_db,
+            args.pg_user,
+            args.pg_password,
+        )
+    )
 
 
 if __name__ == "__main__":

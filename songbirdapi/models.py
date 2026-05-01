@@ -243,10 +243,10 @@ class ImportJob(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     duplicate_of: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
 
 

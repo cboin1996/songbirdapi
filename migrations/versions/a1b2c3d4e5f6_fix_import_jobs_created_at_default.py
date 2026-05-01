@@ -18,12 +18,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "ALTER TABLE import_jobs ALTER COLUMN created_at SET DEFAULT now()"
-    )
-    op.execute(
-        "ALTER TABLE import_jobs ALTER COLUMN updated_at SET DEFAULT now()"
-    )
+    op.execute("ALTER TABLE import_jobs ALTER COLUMN created_at SET DEFAULT now()")
+    op.execute("ALTER TABLE import_jobs ALTER COLUMN updated_at SET DEFAULT now()")
 
 
 def downgrade() -> None:

@@ -1,4 +1,5 @@
-from typing import Literal
+from datetime import datetime
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -30,6 +31,7 @@ class PlayerState(BaseModel):
     manual_next: list[str] = Field(default_factory=list)
     current_song_uuid: str | None = None
     queue_sources: dict[str, QueueSource] = Field(default_factory=dict)
+    updated_at: Optional[datetime] = None
 
 
 def _serialize(state) -> PlayerState:
@@ -45,6 +47,7 @@ def _serialize(state) -> PlayerState:
         manual_next=state.manual_next or [],
         current_song_uuid=state.current_song_uuid,
         queue_sources=state.queue_sources or {},
+        updated_at=state.updated_at,
     )
 
 

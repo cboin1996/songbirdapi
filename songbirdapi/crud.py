@@ -254,6 +254,11 @@ async def remove_from_library(db: AsyncSession, user_id: str, song_id: str) -> b
     result = await db.execute(
         delete(UserSong).where(UserSong.user_id == user_id, UserSong.song_id == song_id)
     )
+    await db.execute(
+        delete(UserOfflineSong).where(
+            UserOfflineSong.user_id == user_id, UserOfflineSong.song_id == song_id
+        )
+    )
     await db.commit()
     return result.rowcount > 0
 
@@ -264,6 +269,11 @@ async def bulk_remove_from_library(
     await db.execute(
         delete(UserSong).where(
             UserSong.user_id == user_id, UserSong.song_id.in_(song_ids)
+        )
+    )
+    await db.execute(
+        delete(UserOfflineSong).where(
+            UserOfflineSong.user_id == user_id, UserOfflineSong.song_id.in_(song_ids)
         )
     )
     await db.commit()

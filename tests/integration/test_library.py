@@ -62,6 +62,20 @@ async def test_remove_from_library(test_client: AsyncClient, regular_user, sampl
     assert not any(e["song_id"] == sample_song.uuid for e in resp.json())
 
 
+async def test_remove_from_library_cleans_offline(
+    test_client: AsyncClient, regular_user, sample_song
+):
+    cookies = await login(test_client, regular_user)
+    await test_client.post(f"/v1/library/{sample_song.uuid}", cookies=cookies)
+    await test_client.post(f"/v1/library/offline/{sample_song.uuid}", cookies=cookies)
+    resp = await test_client.get("/v1/library/offline", cookies=cookies)
+    assert sample_song.uuid in resp.json()
+
+    await test_client.delete(f"/v1/library/{sample_song.uuid}", cookies=cookies)
+    resp = await test_client.get("/v1/library/offline", cookies=cookies)
+    assert sample_song.uuid not in resp.json()
+
+
 async def test_remove_nonexistent_returns_404(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
     resp = await test_client.delete("/v1/library/does-not-exist", cookies=cookies)
@@ -186,6 +200,45 @@ async def test_bulk_remove_from_library(
     assert sample_song.uuid not in uuids
     assert second_uuid not in uuids
     # cleanup
+    async with _TestingSession() as db:
+        await _crud.delete_song(db, second_uuid)
+
+
+async def test_bulk_remove_cleans_offline(
+    test_client: AsyncClient, regular_user, sample_song
+):
+    import uuid as _uuid
+
+    from songbirdapi import crud as _crud
+    from songbirdapi.models import Song as _Song
+    from tests.integration.conftest import _TestingSession
+
+    cookies = await login(test_client, regular_user)
+    second_uuid = str(_uuid.uuid4())
+    async with _TestingSession() as db:
+        song2 = _Song(
+            uuid=second_uuid,
+            url="https://example.com/bulk-offline-song2",
+            file_path="/tmp/bulk-offline-song2.mp3",
+        )
+        await _crud.insert_song(db, song2)
+    await test_client.post(f"/v1/library/{sample_song.uuid}", cookies=cookies)
+    await test_client.post(f"/v1/library/{second_uuid}", cookies=cookies)
+    await test_client.post(f"/v1/library/offline/{sample_song.uuid}", cookies=cookies)
+    await test_client.post(f"/v1/library/offline/{second_uuid}", cookies=cookies)
+
+    resp = await test_client.request(
+        "DELETE",
+        "/v1/library/bulk",
+        json={"song_ids": [sample_song.uuid, second_uuid]},
+        cookies=cookies,
+    )
+    assert resp.status_code == 204
+    resp = await test_client.get("/v1/library/offline", cookies=cookies)
+    offline_ids = resp.json()
+    assert sample_song.uuid not in offline_ids
+    assert second_uuid not in offline_ids
+
     async with _TestingSession() as db:
         await _crud.delete_song(db, second_uuid)
 

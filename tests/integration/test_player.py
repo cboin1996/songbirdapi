@@ -212,3 +212,17 @@ async def test_put_player_state_malformed_queue_source(
         cookies=cookies,
     )
     assert resp.status_code == 422
+
+
+async def test_player_state_returns_updated_at(test_client: AsyncClient, regular_user):
+    cookies = await login(test_client, regular_user)
+    await test_client.put(
+        "/v1/player/state",
+        json={"shuffle": False, "repeat": "off", "queue": [], "queue_index": -1},
+        cookies=cookies,
+    )
+    resp = await test_client.get("/v1/player/state", cookies=cookies)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "updated_at" in body
+    assert body["updated_at"] is not None

@@ -3,6 +3,7 @@ APP_NAME=songbirdapi
 .PHONY: setup
 setup:
 	uv sync --extra dev
+	git config core.hooksPath .githooks
 
 .PHONY: upgrade
 upgrade:

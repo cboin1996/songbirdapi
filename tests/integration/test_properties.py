@@ -1,5 +1,6 @@
 import pytest
 from httpx import AsyncClient
+from songbirdapi.routes import AUTH_LOGIN, PROPERTIES, PROPERTIES_ITUNES, properties_path
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -21,7 +22,7 @@ _VALID_PROPERTIES = {
 
 async def login(test_client: AsyncClient, user) -> dict:
     resp = await test_client.post(
-        "/v1/auth/login", json={"username": user.username, "password": "testpass123"}
+        AUTH_LOGIN, json={"username": user.username, "password": "testpass123"}
     )
     return dict(resp.cookies)
 
@@ -29,7 +30,7 @@ async def login(test_client: AsyncClient, user) -> dict:
 async def test_search_properties(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
     resp = await test_client.get(
-        "/v1/properties", params={"query": "test"}, cookies=cookies
+        PROPERTIES, params={"query": "test"}, cookies=cookies
     )
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
@@ -42,7 +43,7 @@ async def test_search_properties(test_client: AsyncClient, regular_user):
 async def test_put_properties(test_client: AsyncClient, regular_user, sample_song):
     cookies = await login(test_client, regular_user)
     resp = await test_client.put(
-        "/v1/properties",
+        PROPERTIES,
         json={"song_id": sample_song.uuid, "properties": _VALID_PROPERTIES},
         cookies=cookies,
     )
@@ -56,13 +57,13 @@ async def test_put_properties(test_client: AsyncClient, regular_user, sample_son
 
 
 async def test_search_properties_requires_auth(test_client: AsyncClient):
-    resp = await test_client.get("/v1/properties", params={"query": "test"})
+    resp = await test_client.get(PROPERTIES, params={"query": "test"})
     assert resp.status_code == 401
 
 
 async def test_put_properties_requires_auth(test_client: AsyncClient, sample_song):
     resp = await test_client.put(
-        "/v1/properties",
+        PROPERTIES,
         json={"song_id": sample_song.uuid, "properties": _VALID_PROPERTIES},
     )
     assert resp.status_code == 401
@@ -76,7 +77,7 @@ async def test_put_properties_requires_auth(test_client: AsyncClient, sample_son
 async def test_get_properties_by_id_not_found(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
     resp = await test_client.get(
-        "/v1/properties/00000000-0000-0000-0000-000000000000", cookies=cookies
+        properties_path("00000000-0000-0000-0000-000000000000"), cookies=cookies
     )
     assert resp.status_code == 404
 
@@ -88,7 +89,7 @@ async def test_get_properties_by_id_no_properties(
     # so this verifies the song exists but we test a fresh song with no props
     cookies = await login(test_client, regular_user)
     # Use sample_song after properties have been set; properties exist now so expect 200
-    resp = await test_client.get(f"/v1/properties/{sample_song.uuid}", cookies=cookies)
+    resp = await test_client.get(properties_path(sample_song.uuid), cookies=cookies)
     # Could be 200 (if properties were set by earlier test) or 404 (if not set)
     assert resp.status_code in (200, 404)
 
@@ -96,7 +97,7 @@ async def test_get_properties_by_id_no_properties(
 async def test_get_properties_by_id_requires_auth(
     test_client: AsyncClient, sample_song
 ):
-    resp = await test_client.get(f"/v1/properties/{sample_song.uuid}")
+    resp = await test_client.get(properties_path(sample_song.uuid))
     assert resp.status_code == 401
 
 
@@ -108,7 +109,7 @@ async def test_get_properties_by_id_requires_auth(
 async def test_put_properties_song_not_found(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
     resp = await test_client.put(
-        "/v1/properties",
+        PROPERTIES,
         json={
             "song_id": "00000000-0000-0000-0000-000000000000",
             "properties": _VALID_PROPERTIES,
@@ -124,14 +125,14 @@ async def test_put_properties_song_not_found(test_client: AsyncClient, regular_u
 
 
 async def test_get_itunes_requires_auth(test_client: AsyncClient):
-    resp = await test_client.get("/v1/properties/itunes", params={"query": "test"})
+    resp = await test_client.get(PROPERTIES_ITUNES, params={"query": "test"})
     assert resp.status_code == 401
 
 
 async def test_get_itunes_returns_list(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
     resp = await test_client.get(
-        "/v1/properties/itunes", params={"query": "test song"}, cookies=cookies
+        PROPERTIES_ITUNES, params={"query": "test song"}, cookies=cookies
     )
     # itunes API may or may not be reachable in test env; accept 200 or 5xx
     assert resp.status_code in (200, 500, 502, 503)

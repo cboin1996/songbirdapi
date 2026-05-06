@@ -1,19 +1,20 @@
 import pytest
 from httpx import AsyncClient
+from songbirdapi.routes import AUTH_LOGIN, PLAYER_STATE
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
 async def login(test_client: AsyncClient, user) -> dict:
     resp = await test_client.post(
-        "/v1/auth/login", json={"username": user.username, "password": "testpass123"}
+        AUTH_LOGIN, json={"username": user.username, "password": "testpass123"}
     )
     return dict(resp.cookies)
 
 
 async def test_get_player_state(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.get("/v1/player/state", cookies=cookies)
+    resp = await test_client.get(PLAYER_STATE, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert "shuffle" in body
@@ -25,7 +26,7 @@ async def test_get_player_state(test_client: AsyncClient, regular_user):
 async def test_put_player_state(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
     resp = await test_client.put(
-        "/v1/player/state",
+        PLAYER_STATE,
         json={"shuffle": True, "repeat": "all", "queue": [], "queue_index": -1},
         cookies=cookies,
     )
@@ -35,11 +36,11 @@ async def test_put_player_state(test_client: AsyncClient, regular_user):
 async def test_player_state_persists(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
     await test_client.put(
-        "/v1/player/state",
+        PLAYER_STATE,
         json={"shuffle": True, "repeat": "all", "queue": [], "queue_index": -1},
         cookies=cookies,
     )
-    resp = await test_client.get("/v1/player/state", cookies=cookies)
+    resp = await test_client.get(PLAYER_STATE, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert body["shuffle"] is True
@@ -47,13 +48,13 @@ async def test_player_state_persists(test_client: AsyncClient, regular_user):
 
 
 async def test_get_player_state_requires_auth(test_client: AsyncClient):
-    resp = await test_client.get("/v1/player/state")
+    resp = await test_client.get(PLAYER_STATE)
     assert resp.status_code == 401
 
 
 async def test_put_player_state_requires_auth(test_client: AsyncClient):
     resp = await test_client.put(
-        "/v1/player/state",
+        PLAYER_STATE,
         json={"shuffle": False, "repeat": "off", "queue": [], "queue_index": -1},
     )
     assert resp.status_code == 401
@@ -62,7 +63,7 @@ async def test_put_player_state_requires_auth(test_client: AsyncClient):
 async def test_put_player_state_invalid_repeat(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
     resp = await test_client.put(
-        "/v1/player/state",
+        PLAYER_STATE,
         json={
             "shuffle": False,
             "repeat": "invalid_value",
@@ -79,7 +80,7 @@ async def test_put_player_state_with_queue(
 ):
     cookies = await login(test_client, regular_user)
     resp = await test_client.put(
-        "/v1/player/state",
+        PLAYER_STATE,
         json={
             "shuffle": False,
             "repeat": "one",
@@ -108,7 +109,7 @@ async def test_put_player_state_with_queue_sources(
         }
     }
     resp = await test_client.put(
-        "/v1/player/state",
+        PLAYER_STATE,
         json={
             "shuffle": False,
             "repeat": "off",
@@ -121,7 +122,7 @@ async def test_put_player_state_with_queue_sources(
     assert resp.status_code in (200, 204)
 
     # GET and verify queue_sources
-    resp = await test_client.get("/v1/player/state", cookies=cookies)
+    resp = await test_client.get(PLAYER_STATE, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert body["queue_sources"] == queue_sources
@@ -133,14 +134,14 @@ async def test_put_player_state_without_queue_sources_legacy(
     """PUT without queue_sources (legacy clients) should not error, default to {}."""
     cookies = await login(test_client, regular_user)
     resp = await test_client.put(
-        "/v1/player/state",
+        PLAYER_STATE,
         json={"shuffle": False, "repeat": "off", "queue": [], "queue_index": -1},
         cookies=cookies,
     )
     assert resp.status_code in (200, 204)
 
     # GET and verify queue_sources defaults to {}
-    resp = await test_client.get("/v1/player/state", cookies=cookies)
+    resp = await test_client.get(PLAYER_STATE, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert body["queue_sources"] == {}
@@ -162,7 +163,7 @@ async def test_queue_sources_roundtrip_with_uuid(
 
     # PUT
     resp = await test_client.put(
-        "/v1/player/state",
+        PLAYER_STATE,
         json={
             "shuffle": False,
             "repeat": "all",
@@ -175,14 +176,14 @@ async def test_queue_sources_roundtrip_with_uuid(
     assert resp.status_code in (200, 204)
 
     # First GET
-    resp = await test_client.get("/v1/player/state", cookies=cookies)
+    resp = await test_client.get(PLAYER_STATE, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert source_uuid in body["queue_sources"]
     assert body["queue_sources"][source_uuid] == queue_sources[source_uuid]
 
     # Second GET to verify persistence
-    resp = await test_client.get("/v1/player/state", cookies=cookies)
+    resp = await test_client.get(PLAYER_STATE, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert body["queue_sources"] == queue_sources
@@ -201,7 +202,7 @@ async def test_put_player_state_malformed_queue_source(
         }
     }
     resp = await test_client.put(
-        "/v1/player/state",
+        PLAYER_STATE,
         json={
             "shuffle": False,
             "repeat": "off",
@@ -217,11 +218,11 @@ async def test_put_player_state_malformed_queue_source(
 async def test_player_state_returns_updated_at(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
     await test_client.put(
-        "/v1/player/state",
+        PLAYER_STATE,
         json={"shuffle": False, "repeat": "off", "queue": [], "queue_index": -1},
         cookies=cookies,
     )
-    resp = await test_client.get("/v1/player/state", cookies=cookies)
+    resp = await test_client.get(PLAYER_STATE, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert "updated_at" in body

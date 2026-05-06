@@ -1,12 +1,13 @@
 import pytest
 from httpx import AsyncClient
+from songbirdapi.routes import AUTH_LOGIN, DOWNLOAD, download_path
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
 async def login(test_client: AsyncClient, user) -> dict:
     resp = await test_client.post(
-        "/v1/auth/login", json={"username": user.username, "password": "testpass123"}
+        AUTH_LOGIN, json={"username": user.username, "password": "testpass123"}
     )
     return dict(resp.cookies)
 
@@ -18,18 +19,18 @@ async def login(test_client: AsyncClient, user) -> dict:
 
 async def test_download_post_requires_auth(test_client: AsyncClient):
     resp = await test_client.post(
-        "/v1/download", json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}
+        DOWNLOAD, json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}
     )
     assert resp.status_code == 401
 
 
 async def test_get_download_requires_auth(test_client: AsyncClient):
-    resp = await test_client.get("/v1/download/nonexistent-id")
+    resp = await test_client.get(download_path("nonexistent-id"))
     assert resp.status_code == 401
 
 
 async def test_delete_download_requires_auth(test_client: AsyncClient):
-    resp = await test_client.delete("/v1/download/nonexistent-id")
+    resp = await test_client.delete(download_path("nonexistent-id"))
     assert resp.status_code == 401
 
 
@@ -41,7 +42,7 @@ async def test_delete_download_requires_auth(test_client: AsyncClient):
 async def test_get_download_not_found(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
     resp = await test_client.get(
-        "/v1/download/00000000-0000-0000-0000-000000000000", cookies=cookies
+        download_path("00000000-0000-0000-0000-000000000000"), cookies=cookies
     )
     assert resp.status_code == 404
 
@@ -56,7 +57,7 @@ async def test_delete_download_nonexistent_is_ok(
 ):
     cookies = await login(test_client, regular_user)
     resp = await test_client.delete(
-        "/v1/download/00000000-0000-0000-0000-000000000000", cookies=cookies
+        download_path("00000000-0000-0000-0000-000000000000"), cookies=cookies
     )
     # router does not raise on missing — just deletes nothing
     assert resp.status_code in (200, 204)
@@ -72,7 +73,7 @@ async def test_download_cached_returns_existing_song(
 ):
     cookies = await login(test_client, regular_user)
     resp = await test_client.post(
-        "/v1/download",
+        DOWNLOAD,
         json={"url": sample_song.url, "ignore_cache": False},
         cookies=cookies,
     )

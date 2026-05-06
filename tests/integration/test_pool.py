@@ -22,6 +22,7 @@ import pytest
 from httpx import AsyncClient
 
 from songbirdapi import database
+from songbirdapi.routes import AUTH_LOGIN, HEALTH, LIBRARY, library_song_path, song_artwork_path, song_path
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -32,7 +33,7 @@ def _checkedout() -> int:
 
 async def _login(test_client: AsyncClient, user) -> dict:
     resp = await test_client.post(
-        "/v1/auth/login", json={"username": user.username, "password": "testpass123"}
+        AUTH_LOGIN, json={"username": user.username, "password": "testpass123"}
     )
     return dict(resp.cookies)
 
@@ -45,7 +46,7 @@ async def test_read_endpoint_releases_connection_after_response(
     cookies = await _login(test_client, regular_user)
     baseline = _checkedout()
     for _ in range(50):
-        resp = await test_client.get("/v1/library", cookies=cookies)
+        resp = await test_client.get(LIBRARY, cookies=cookies)
         assert resp.status_code == 200
     # Allow one in-flight settle — the test client's own request is in
     # flight when this line runs the next time, but with no in-flight
@@ -65,10 +66,10 @@ async def test_write_endpoint_releases_connection_after_response(
     baseline = _checkedout()
     for _ in range(20):
         # Add then remove — idempotent loop, doesn't leak rows.
-        r1 = await test_client.post(f"/v1/library/{sample_song.uuid}", cookies=cookies)
+        r1 = await test_client.post(library_song_path(sample_song.uuid), cookies=cookies)
         assert r1.status_code == 201
         r2 = await test_client.delete(
-            f"/v1/library/{sample_song.uuid}", cookies=cookies
+            library_song_path(sample_song.uuid), cookies=cookies
         )
         assert r2.status_code == 204
     await asyncio.sleep(0.05)
@@ -84,7 +85,7 @@ async def test_endpoint_raising_404_releases_connection(
     cookies = await _login(test_client, regular_user)
     baseline = _checkedout()
     for _ in range(50):
-        resp = await test_client.get("/v1/songs/does-not-exist-xyz", cookies=cookies)
+        resp = await test_client.get(song_path("does-not-exist-xyz"), cookies=cookies)
         assert resp.status_code == 404
     await asyncio.sleep(0.05)
     assert _checkedout() == baseline
@@ -100,7 +101,7 @@ async def test_concurrent_burst_does_not_exhaust_pool(
     baseline = _checkedout()
 
     async def one():
-        r = await test_client.get("/v1/library", cookies=cookies)
+        r = await test_client.get(LIBRARY, cookies=cookies)
         assert r.status_code == 200
 
     await asyncio.gather(*(one() for _ in range(50)))
@@ -122,7 +123,7 @@ async def test_streaming_artwork_releases_session_before_stream(
     # 404 is fine — handler still goes through session_scope read path
     for _ in range(30):
         resp = await test_client.get(
-            f"/v1/songs/{sample_song.uuid}/artwork/full", cookies=cookies
+            song_artwork_path(sample_song.uuid, "full"), cookies=cookies
         )
         assert resp.status_code == 404
     await asyncio.sleep(0.05)
@@ -144,7 +145,7 @@ async def test_health_endpoint_releases_db_session(test_client: AsyncClient):
     few seconds drains the pool over hours. Verify by hammering it."""
     baseline = _checkedout()
     for _ in range(100):
-        resp = await test_client.get("/v1/health")
+        resp = await test_client.get(HEALTH)
         assert resp.status_code == 200
     await asyncio.sleep(0.05)
     assert _checkedout() == baseline

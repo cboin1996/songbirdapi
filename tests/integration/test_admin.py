@@ -1,19 +1,20 @@
 import pytest
 from httpx import AsyncClient
+from songbirdapi.routes import ADMIN_EDIT_JOBS, ADMIN_ERRORS, ADMIN_STATS, ADMIN_USERS, AUTH_LOGIN, AUTH_REGISTER, admin_user_path
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
 async def login(test_client: AsyncClient, user) -> dict:
     resp = await test_client.post(
-        "/v1/auth/login", json={"username": user.username, "password": "testpass123"}
+        AUTH_LOGIN, json={"username": user.username, "password": "testpass123"}
     )
     return dict(resp.cookies)
 
 
 async def test_stats_as_admin(test_client: AsyncClient, admin_user):
     cookies = await login(test_client, admin_user)
-    resp = await test_client.get("/v1/admin/stats", cookies=cookies)
+    resp = await test_client.get(ADMIN_STATS, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert "song_count" in body
@@ -24,13 +25,13 @@ async def test_stats_as_admin(test_client: AsyncClient, admin_user):
 
 async def test_stats_as_regular_user_forbidden(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.get("/v1/admin/stats", cookies=cookies)
+    resp = await test_client.get(ADMIN_STATS, cookies=cookies)
     assert resp.status_code == 403
 
 
 async def test_errors_as_admin(test_client: AsyncClient, admin_user):
     cookies = await login(test_client, admin_user)
-    resp = await test_client.get("/v1/admin/errors", cookies=cookies)
+    resp = await test_client.get(ADMIN_ERRORS, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert "total" in body
@@ -40,7 +41,7 @@ async def test_errors_as_admin(test_client: AsyncClient, admin_user):
 
 async def test_errors_as_regular_user_forbidden(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.get("/v1/admin/errors", cookies=cookies)
+    resp = await test_client.get(ADMIN_ERRORS, cookies=cookies)
     assert resp.status_code == 403
 
 
@@ -48,7 +49,7 @@ async def test_update_user_as_admin(test_client: AsyncClient, admin_user, regula
     cookies = await login(test_client, admin_user)
 
     resp = await test_client.patch(
-        f"/v1/admin/users/{regular_user.id}",
+        admin_user_path(regular_user.id),
         json={"is_active": False},
         cookies=cookies,
     )
@@ -56,7 +57,7 @@ async def test_update_user_as_admin(test_client: AsyncClient, admin_user, regula
     assert resp.json()["is_active"] is False
 
     restore = await test_client.patch(
-        f"/v1/admin/users/{regular_user.id}",
+        admin_user_path(regular_user.id),
         json={"is_active": True},
         cookies=cookies,
     )
@@ -66,7 +67,7 @@ async def test_update_user_as_admin(test_client: AsyncClient, admin_user, regula
 
 async def test_list_users_as_admin(test_client: AsyncClient, admin_user, regular_user):
     cookies = await login(test_client, admin_user)
-    resp = await test_client.get("/v1/admin/users", cookies=cookies)
+    resp = await test_client.get(ADMIN_USERS, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert isinstance(body, list)
@@ -77,14 +78,14 @@ async def test_list_users_as_regular_user_forbidden(
     test_client: AsyncClient, regular_user
 ):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.get("/v1/admin/users", cookies=cookies)
+    resp = await test_client.get(ADMIN_USERS, cookies=cookies)
     assert resp.status_code == 403
 
 
 async def test_update_user_not_found(test_client: AsyncClient, admin_user):
     cookies = await login(test_client, admin_user)
     resp = await test_client.patch(
-        "/v1/admin/users/00000000-0000-0000-0000-000000000000",
+        admin_user_path("00000000-0000-0000-0000-000000000000"),
         json={"is_active": True},
         cookies=cookies,
     )
@@ -96,7 +97,7 @@ async def test_update_user_role_as_admin(
 ):
     cookies = await login(test_client, admin_user)
     resp = await test_client.patch(
-        f"/v1/admin/users/{regular_user.id}",
+        admin_user_path(regular_user.id),
         json={"role": "user"},
         cookies=cookies,
     )
@@ -108,12 +109,12 @@ async def test_delete_user_as_admin(test_client: AsyncClient, admin_user):
     import uuid
 
     admin_login = await test_client.post(
-        "/v1/auth/login",
+        AUTH_LOGIN,
         json={"username": admin_user.username, "password": "testpass123"},
     )
     uname = f"todelete_{uuid.uuid4().hex[:6]}"
     reg = await test_client.post(
-        "/v1/auth/register",
+        AUTH_REGISTER,
         json={"username": uname, "email": f"{uname}@test.com", "password": "pass123"},
         cookies=admin_login.cookies,
     )
@@ -121,27 +122,27 @@ async def test_delete_user_as_admin(test_client: AsyncClient, admin_user):
     user_id = reg.json()["id"]
 
     cookies = await login(test_client, admin_user)
-    resp = await test_client.delete(f"/v1/admin/users/{user_id}", cookies=cookies)
+    resp = await test_client.delete(admin_user_path(user_id), cookies=cookies)
     assert resp.status_code == 204
 
 
 async def test_delete_user_not_found(test_client: AsyncClient, admin_user):
     cookies = await login(test_client, admin_user)
     resp = await test_client.delete(
-        "/v1/admin/users/00000000-0000-0000-0000-000000000000", cookies=cookies
+        admin_user_path("00000000-0000-0000-0000-000000000000"), cookies=cookies
     )
     assert resp.status_code == 404
 
 
 async def test_delete_user_requires_admin(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.delete("/v1/admin/users/some-id", cookies=cookies)
+    resp = await test_client.delete(admin_user_path("some-id"), cookies=cookies)
     assert resp.status_code == 403
 
 
 async def test_get_edit_jobs_as_admin(test_client: AsyncClient, admin_user):
     cookies = await login(test_client, admin_user)
-    resp = await test_client.get("/v1/admin/edit-jobs", cookies=cookies)
+    resp = await test_client.get(ADMIN_EDIT_JOBS, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert "total" in body
@@ -151,23 +152,23 @@ async def test_get_edit_jobs_as_admin(test_client: AsyncClient, admin_user):
 
 async def test_get_edit_jobs_requires_admin(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.get("/v1/admin/edit-jobs", cookies=cookies)
+    resp = await test_client.get(ADMIN_EDIT_JOBS, cookies=cookies)
     assert resp.status_code == 403
 
 
 async def test_get_edit_jobs_requires_auth(test_client: AsyncClient):
-    resp = await test_client.get("/v1/admin/edit-jobs")
+    resp = await test_client.get(ADMIN_EDIT_JOBS)
     assert resp.status_code == 401
 
 
 async def test_stats_requires_auth(test_client: AsyncClient):
-    resp = await test_client.get("/v1/admin/stats")
+    resp = await test_client.get(ADMIN_STATS)
     assert resp.status_code == 401
 
 
 async def test_stats_has_extended_fields(test_client: AsyncClient, admin_user):
     cookies = await login(test_client, admin_user)
-    resp = await test_client.get("/v1/admin/stats", cookies=cookies)
+    resp = await test_client.get(ADMIN_STATS, cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert "plays_by_day" in body

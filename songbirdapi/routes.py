@@ -93,6 +93,7 @@ PLAYER_QUEUE_REORDER = f"{V1}/player/queue/reorder"
 def player_queue_song_path(song_id: str) -> str:
     return f"{PLAYER_QUEUE}/{song_id}"
 
+
 # Playlists
 PLAYLISTS = f"{V1}/playlists"
 

@@ -114,3 +114,17 @@ async def sample_song(test_client):
     yield song
     async with _TestingSession() as db:
         await crud.delete_song(db, song.uuid)
+
+
+@pytest_asyncio.fixture(scope="session")
+async def second_song(test_client):
+    async with _TestingSession() as db:
+        song = Song(
+            uuid=str(uuid.uuid4()),
+            url="https://example.com/test-song-2",
+            file_path="/tmp/test-song-2.mp3",
+        )
+        await crud.insert_song(db, song)
+    yield song
+    async with _TestingSession() as db:
+        await crud.delete_song(db, song.uuid)

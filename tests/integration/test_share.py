@@ -1,6 +1,13 @@
 import pytest
 from httpx import AsyncClient
-from songbirdapi.routes import AUTH_LOGIN, download_path, share_download_path, share_info_path, share_song_path, song_path
+from songbirdapi.routes import (
+    AUTH_LOGIN,
+    download_path,
+    share_download_path,
+    share_info_path,
+    share_song_path,
+    song_path,
+)
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -14,9 +21,7 @@ async def login(test_client: AsyncClient, user) -> dict:
 
 async def test_create_share_link(test_client: AsyncClient, regular_user, sample_song):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.post(
-        share_song_path(sample_song.uuid), cookies=cookies
-    )
+    resp = await test_client.post(share_song_path(sample_song.uuid), cookies=cookies)
     assert resp.status_code in (200, 201)
     body = resp.json()
     assert "token" in body

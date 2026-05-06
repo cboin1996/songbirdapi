@@ -22,7 +22,14 @@ import pytest
 from httpx import AsyncClient
 
 from songbirdapi import database
-from songbirdapi.routes import AUTH_LOGIN, HEALTH, LIBRARY, library_song_path, song_artwork_path, song_path
+from songbirdapi.routes import (
+    AUTH_LOGIN,
+    HEALTH,
+    LIBRARY,
+    library_song_path,
+    song_artwork_path,
+    song_path,
+)
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -66,7 +73,9 @@ async def test_write_endpoint_releases_connection_after_response(
     baseline = _checkedout()
     for _ in range(20):
         # Add then remove — idempotent loop, doesn't leak rows.
-        r1 = await test_client.post(library_song_path(sample_song.uuid), cookies=cookies)
+        r1 = await test_client.post(
+            library_song_path(sample_song.uuid), cookies=cookies
+        )
         assert r1.status_code == 201
         r2 = await test_client.delete(
             library_song_path(sample_song.uuid), cookies=cookies

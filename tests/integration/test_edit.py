@@ -1,6 +1,12 @@
 import pytest
 from httpx import AsyncClient
-from songbirdapi.routes import AUTH_LOGIN, edit_draft_path, edit_job_path, edit_song_path, song_path
+from songbirdapi.routes import (
+    AUTH_LOGIN,
+    edit_draft_path,
+    edit_job_path,
+    edit_song_path,
+    song_path,
+)
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -35,9 +41,7 @@ async def test_get_draft(test_client: AsyncClient, regular_user, sample_song):
     await test_client.put(
         edit_draft_path(sample_song.uuid), json=_EDIT_PARAMS, cookies=cookies
     )
-    resp = await test_client.get(
-        edit_draft_path(sample_song.uuid), cookies=cookies
-    )
+    resp = await test_client.get(edit_draft_path(sample_song.uuid), cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
     assert body["params"]["trim_start"] == 0
@@ -50,9 +54,7 @@ async def test_delete_draft(test_client: AsyncClient, regular_user, sample_song)
     await test_client.put(
         edit_draft_path(sample_song.uuid), json=_EDIT_PARAMS, cookies=cookies
     )
-    resp = await test_client.delete(
-        edit_draft_path(sample_song.uuid), cookies=cookies
-    )
+    resp = await test_client.delete(edit_draft_path(sample_song.uuid), cookies=cookies)
     assert resp.status_code == 204
 
 
@@ -63,12 +65,8 @@ async def test_get_draft_after_delete_returns_404(
     await test_client.put(
         edit_draft_path(sample_song.uuid), json=_EDIT_PARAMS, cookies=cookies
     )
-    await test_client.delete(
-        edit_draft_path(sample_song.uuid), cookies=cookies
-    )
-    resp = await test_client.get(
-        edit_draft_path(sample_song.uuid), cookies=cookies
-    )
+    await test_client.delete(edit_draft_path(sample_song.uuid), cookies=cookies)
+    resp = await test_client.get(edit_draft_path(sample_song.uuid), cookies=cookies)
     assert resp.status_code == 404
 
 

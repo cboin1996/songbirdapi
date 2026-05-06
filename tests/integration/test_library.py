@@ -1,6 +1,16 @@
 import pytest
 from httpx import AsyncClient
-from songbirdapi.routes import AUTH_LOGIN, LIBRARY, LIBRARY_BULK, LIBRARY_OFFLINE, LIBRARY_PUBLISH, library_offline_path, library_position_path, library_song_path, song_path
+from songbirdapi.routes import (
+    AUTH_LOGIN,
+    LIBRARY,
+    LIBRARY_BULK,
+    LIBRARY_OFFLINE,
+    LIBRARY_PUBLISH,
+    library_offline_path,
+    library_position_path,
+    library_song_path,
+    song_path,
+)
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -57,7 +67,9 @@ async def test_library_contains_added_song(
 async def test_remove_from_library(test_client: AsyncClient, regular_user, sample_song):
     cookies = await login(test_client, regular_user)
     await test_client.post(library_song_path(sample_song.uuid), cookies=cookies)
-    resp = await test_client.delete(library_song_path(sample_song.uuid), cookies=cookies)
+    resp = await test_client.delete(
+        library_song_path(sample_song.uuid), cookies=cookies
+    )
     assert resp.status_code == 204
     resp = await test_client.get(LIBRARY, cookies=cookies)
     assert not any(e["song_id"] == sample_song.uuid for e in resp.json())
@@ -79,7 +91,9 @@ async def test_remove_from_library_cleans_offline(
 
 async def test_remove_nonexistent_returns_404(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.delete(library_song_path("does-not-exist"), cookies=cookies)
+    resp = await test_client.delete(
+        library_song_path("does-not-exist"), cookies=cookies
+    )
     assert resp.status_code == 404
 
 

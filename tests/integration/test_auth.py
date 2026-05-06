@@ -1,6 +1,15 @@
 import pytest
 from httpx import AsyncClient
-from songbirdapi.routes import AUTH_LOGIN, AUTH_LOGOUT, AUTH_ME, AUTH_PASSWORD, AUTH_REFRESH, AUTH_REGISTER, admin_user_path, properties_path
+from songbirdapi.routes import (
+    AUTH_LOGIN,
+    AUTH_LOGOUT,
+    AUTH_ME,
+    AUTH_PASSWORD,
+    AUTH_REFRESH,
+    AUTH_REGISTER,
+    admin_user_path,
+    properties_path,
+)
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 

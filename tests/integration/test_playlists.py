@@ -1,6 +1,15 @@
 import pytest
 from httpx import AsyncClient
-from songbirdapi.routes import AUTH_LOGIN, PLAYLISTS, library_song_path, playlist_path, playlist_song_path, playlist_songs_bulk_path, playlist_songs_path, song_path
+from songbirdapi.routes import (
+    AUTH_LOGIN,
+    PLAYLISTS,
+    library_song_path,
+    playlist_path,
+    playlist_song_path,
+    playlist_songs_bulk_path,
+    playlist_songs_path,
+    song_path,
+)
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -50,14 +59,12 @@ async def test_create_playlist(test_client: AsyncClient, regular_user):
     assert "id" in body
     assert body["song_count"] == 0
     # cleanup
-    await test_client.delete(playlist_path(body['id']), cookies=cookies)
+    await test_client.delete(playlist_path(body["id"]), cookies=cookies)
 
 
 async def test_create_playlist_appears_in_list(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
-    create = await test_client.post(
-        PLAYLISTS, json={"name": "listme"}, cookies=cookies
-    )
+    create = await test_client.post(PLAYLISTS, json={"name": "listme"}, cookies=cookies)
     pl_id = create.json()["id"]
     resp = await test_client.get(PLAYLISTS, cookies=cookies)
     assert resp.status_code == 200

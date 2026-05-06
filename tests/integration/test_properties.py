@@ -1,6 +1,11 @@
 import pytest
 from httpx import AsyncClient
-from songbirdapi.routes import AUTH_LOGIN, PROPERTIES, PROPERTIES_ITUNES, properties_path
+from songbirdapi.routes import (
+    AUTH_LOGIN,
+    PROPERTIES,
+    PROPERTIES_ITUNES,
+    properties_path,
+)
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -29,9 +34,7 @@ async def login(test_client: AsyncClient, user) -> dict:
 
 async def test_search_properties(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
-    resp = await test_client.get(
-        PROPERTIES, params={"query": "test"}, cookies=cookies
-    )
+    resp = await test_client.get(PROPERTIES, params={"query": "test"}, cookies=cookies)
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
 

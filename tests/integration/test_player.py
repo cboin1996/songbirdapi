@@ -1,6 +1,12 @@
 import pytest
 from httpx import AsyncClient
-from songbirdapi.routes import AUTH_LOGIN, PLAYER_STATE, PLAYER_QUEUE, PLAYER_QUEUE_REORDER, player_queue_song_path
+from songbirdapi.routes import (
+    AUTH_LOGIN,
+    PLAYER_STATE,
+    PLAYER_QUEUE,
+    PLAYER_QUEUE_REORDER,
+    player_queue_song_path,
+)
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -319,8 +325,11 @@ async def test_queue_insert_updates_shuffle_order(
 ):
     cookies = await login(test_client, regular_user)
     await _seed_queue(
-        test_client, cookies, [sample_song.uuid],
-        shuffle=True, shuffle_order=[0],
+        test_client,
+        cookies,
+        [sample_song.uuid],
+        shuffle=True,
+        shuffle_order=[0],
     )
 
     resp = await test_client.post(
@@ -364,7 +373,8 @@ async def test_queue_remove_adjusts_index(
     await test_client.put(
         PLAYER_STATE,
         json={
-            "shuffle": False, "repeat": "off",
+            "shuffle": False,
+            "repeat": "off",
             "queue": [sample_song.uuid, second_song.uuid],
             "queue_index": 1,
         },
@@ -404,7 +414,8 @@ async def test_queue_remove_cleans_manual_next_and_sources(
     await test_client.put(
         PLAYER_STATE,
         json={
-            "shuffle": False, "repeat": "off",
+            "shuffle": False,
+            "repeat": "off",
             "queue": [sample_song.uuid, second_song.uuid],
             "queue_index": 0,
             "manual_next": [second_song.uuid],
@@ -468,8 +479,11 @@ async def test_queue_reorder_shuffle_on(
 ):
     cookies = await login(test_client, regular_user)
     await _seed_queue(
-        test_client, cookies, [sample_song.uuid, second_song.uuid],
-        shuffle=True, shuffle_order=[0, 1],
+        test_client,
+        cookies,
+        [sample_song.uuid, second_song.uuid],
+        shuffle=True,
+        shuffle_order=[0, 1],
     )
 
     resp = await test_client.put(

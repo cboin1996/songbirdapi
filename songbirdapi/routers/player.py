@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -82,5 +82,54 @@ async def update_state(
         body.manual_next,
         body.current_song_uuid,
         {k: v.model_dump() for k, v in body.queue_sources.items()},
+    )
+    return _serialize(state)
+
+
+class QueueInsertBody(BaseModel):
+    song_id: str
+    position: int | None = None
+    source: QueueSource | None = None
+
+
+class QueueReorderBody(BaseModel):
+    from_position: int
+    to_position: int
+
+
+@router.post("/queue", response_model=PlayerState)
+async def queue_insert(
+    body: QueueInsertBody,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    state = await crud.queue_insert(
+        db,
+        current_user.id,
+        body.song_id,
+        body.position,
+        body.source.model_dump() if body.source else None,
+    )
+    return _serialize(state)
+
+
+@router.delete("/queue/{song_id}", response_model=PlayerState)
+async def queue_remove(
+    song_id: str = Path(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    state = await crud.queue_remove(db, current_user.id, song_id)
+    return _serialize(state)
+
+
+@router.put("/queue/reorder", response_model=PlayerState)
+async def queue_reorder(
+    body: QueueReorderBody,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    state = await crud.queue_reorder(
+        db, current_user.id, body.from_position, body.to_position
     )
     return _serialize(state)

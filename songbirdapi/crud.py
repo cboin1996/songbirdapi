@@ -820,6 +820,147 @@ async def upsert_player_state(
     return state
 
 
+async def queue_insert(
+    db: AsyncSession,
+    user_id: str,
+    song_id: str,
+    position: int | None = None,
+    source: dict | None = None,
+) -> UserPlayerState:
+    state = await get_player_state(db, user_id)
+    if state is None:
+        state = UserPlayerState(user_id=user_id)
+        db.add(state)
+
+    queue = list(state.queue)
+    if song_id in queue:
+        return state
+
+    pos = position if position is not None else len(queue)
+    pos = max(0, min(pos, len(queue)))
+    queue.insert(pos, song_id)
+    state.queue = queue
+
+    if state.shuffle and state.shuffle_order is not None:
+        order = [i + 1 if i >= pos else i for i in state.shuffle_order]
+        order.append(pos)
+        state.shuffle_order = order
+
+    if pos <= state.queue_index:
+        state.queue_index += 1
+
+    if source:
+        sources = dict(state.queue_sources or {})
+        sources[song_id] = source
+        state.queue_sources = sources
+
+    state.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(state)
+    return state
+
+
+async def queue_remove(
+    db: AsyncSession,
+    user_id: str,
+    song_id: str,
+) -> UserPlayerState:
+    state = await get_player_state(db, user_id)
+    if state is None:
+        return UserPlayerState(user_id=user_id)
+
+    queue = list(state.queue)
+    if song_id not in queue:
+        return state
+
+    index = queue.index(song_id)
+    queue.pop(index)
+    state.queue = queue
+
+    if state.shuffle and state.shuffle_order is not None:
+        removed_pos = None
+        for i, v in enumerate(state.shuffle_order):
+            if v == index:
+                removed_pos = i
+                break
+        order = [i for i in state.shuffle_order if i != index]
+        order = [i - 1 if i > index else i for i in order]
+        state.shuffle_order = order
+        if removed_pos is not None and removed_pos < (state.shuffle_position or 0):
+            state.shuffle_position = max(0, (state.shuffle_position or 0) - 1)
+
+    if index < state.queue_index:
+        state.queue_index -= 1
+    elif index == state.queue_index:
+        state.queue_index = min(state.queue_index, max(0, len(queue) - 1))
+
+    manual = list(state.manual_next or [])
+    if song_id in manual:
+        manual.remove(song_id)
+        state.manual_next = manual
+
+    sources = dict(state.queue_sources or {})
+    sources.pop(song_id, None)
+    state.queue_sources = sources
+
+    state.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(state)
+    return state
+
+
+async def queue_reorder(
+    db: AsyncSession,
+    user_id: str,
+    from_position: int,
+    to_position: int,
+) -> UserPlayerState:
+    state = await get_player_state(db, user_id)
+    if state is None:
+        return UserPlayerState(user_id=user_id)
+
+    if from_position == to_position or from_position == to_position - 1:
+        return state
+
+    if state.shuffle and state.shuffle_order is not None:
+        order = list(state.shuffle_order)
+        if from_position < 0 or from_position >= len(order):
+            return state
+        moved = order.pop(from_position)
+        insert_at = to_position - 1 if to_position > from_position else to_position
+        insert_at = max(0, min(insert_at, len(order)))
+        order.insert(insert_at, moved)
+        state.shuffle_order = order
+
+        current_uuid = state.current_song_uuid
+        if current_uuid and current_uuid in state.queue:
+            qi = state.queue.index(current_uuid)
+            new_pos = order.index(qi) if qi in order else (state.shuffle_position or 0)
+            state.shuffle_position = new_pos
+    else:
+        queue = list(state.queue)
+        if from_position < 0 or from_position >= len(queue):
+            return state
+        item = queue.pop(from_position)
+        insert_at = to_position - 1 if to_position > from_position else to_position
+        insert_at = max(0, min(insert_at, len(queue)))
+        queue.insert(insert_at, item)
+        state.queue = queue
+
+        current_idx = state.queue_index
+        if from_position == current_idx:
+            state.queue_index = insert_at
+        elif from_position < current_idx <= insert_at:
+            state.queue_index -= 1
+        elif insert_at <= current_idx < from_position:
+            state.queue_index += 1
+
+    state.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(state)
+    return state
+
+
 # --- Playlists ---
 
 

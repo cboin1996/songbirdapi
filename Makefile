@@ -11,7 +11,24 @@ upgrade:
 
 .PHONY: lint
 lint:
-	uv run black $(APP_NAME)/.
+	uv run black .
+
+.PHONY: lint-check
+lint-check:
+	uv run black --check .
+
+.PHONY: version-check
+version-check:
+	@MAIN_VERSION=$$(git show origin/main:$(APP_NAME)/version.py 2>/dev/null | grep '^version' | cut -d'"' -f2) && \
+	PR_VERSION=$$(grep '^version' $(APP_NAME)/version.py | cut -d'"' -f2) && \
+	MAIN_PYPROJECT=$$(git show origin/main:pyproject.toml 2>/dev/null | grep '^version' | head -1 | cut -d'"' -f2) && \
+	PR_PYPROJECT=$$(grep '^version' pyproject.toml | head -1 | cut -d'"' -f2) && \
+	if [ "$$MAIN_VERSION" = "$$PR_VERSION" ]; then echo "ERROR: version.py not bumped ($$PR_VERSION)"; exit 1; fi && \
+	if [ "$$MAIN_PYPROJECT" = "$$PR_PYPROJECT" ]; then echo "ERROR: pyproject.toml not bumped ($$PR_PYPROJECT)"; exit 1; fi && \
+	echo "OK: $$MAIN_VERSION -> $$PR_VERSION"
+
+.PHONY: pre-commit
+pre-commit: lint-check version-check
 
 .PHONY: test
 test:

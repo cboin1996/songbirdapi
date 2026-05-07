@@ -23,7 +23,8 @@ from songbirdapi.models import (
     UserSong,
 )
 from songbirdapi.routers.auth import UserResponse
-from ..dependencies import get_db, load_settings, require_admin
+from songbirdapi.security import verify_password
+from ..dependencies import get_db, get_current_user, load_settings, require_admin
 
 router = APIRouter(
     prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)]
@@ -33,6 +34,10 @@ router = APIRouter(
 class UpdateUserBody(BaseModel):
     role: Optional[Role] = None
     is_active: Optional[bool] = None
+
+
+class DeleteUserBody(BaseModel):
+    password: str
 
 
 class UsersPage(BaseModel):
@@ -77,12 +82,118 @@ async def update_user(
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(user_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_user(
+    user_id: str,
+    body: DeleteUserBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not await verify_password(body.password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password"
+        )
     deleted = await crud.delete_user(db, user_id)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
+
+
+class AdminImportJobResponse(BaseModel):
+    job_id: str
+    user_id: str
+    username: str
+    status: str
+    song_id: Optional[str] = None
+    track_name: Optional[str] = None
+    error: Optional[str] = None
+    duplicate_of: Optional[str] = None
+    filename: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class AdminImportJobsPage(BaseModel):
+    total: int
+    jobs: List[AdminImportJobResponse]
+    status_counts: dict[str, int] = {}
+
+
+@router.get("/imports", response_model=AdminImportJobsPage)
+async def list_all_imports(
+    query: str = Query(default=""),
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    base = (
+        select(ImportJob)
+        .outerjoin(Song, ImportJob.song_id == Song.uuid)
+        .outerjoin(User, ImportJob.user_id == User.id)
+    )
+    if query:
+        pattern = f"%{query}%"
+        base = base.where(
+            or_(
+                cast(ImportJob.status, String).ilike(pattern),
+                ImportJob.filename.ilike(pattern),
+                Song.properties["trackName"].astext.ilike(pattern),
+                User.username.ilike(pattern),
+            )
+        )
+
+    total = (
+        await db.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar_one()
+
+    counts_base = select(ImportJob.status, func.count())
+    if query:
+        counts_base = (
+            counts_base.outerjoin(Song, ImportJob.song_id == Song.uuid)
+            .outerjoin(User, ImportJob.user_id == User.id)
+            .where(
+                or_(
+                    cast(ImportJob.status, String).ilike(f"%{query}%"),
+                    ImportJob.filename.ilike(f"%{query}%"),
+                    Song.properties["trackName"].astext.ilike(f"%{query}%"),
+                    User.username.ilike(f"%{query}%"),
+                )
+            )
+        )
+    counts_rows = (await db.execute(counts_base.group_by(ImportJob.status))).all()
+    status_counts = {row[0].value: row[1] for row in counts_rows}
+
+    result = await db.execute(
+        base.order_by(ImportJob.created_at.desc()).offset(offset).limit(limit)
+    )
+    jobs = list(result.scalars().all())
+
+    user_ids = {j.user_id for j in jobs}
+    users_result = await db.execute(select(User).where(User.id.in_(user_ids)))
+    users_by_id = {u.id: u for u in users_result.scalars()}
+
+    responses = []
+    for job in jobs:
+        track_name: str | None = None
+        if job.song_id:
+            song = await crud.get_song(db, job.song_id)
+            if song and song.properties:
+                track_name = song.properties.get("trackName")
+        u = users_by_id.get(job.user_id)
+        responses.append(
+            AdminImportJobResponse(
+                job_id=job.id,
+                user_id=job.user_id,
+                username=u.username if u else "unknown",
+                status=job.status.value,
+                song_id=job.song_id,
+                track_name=track_name,
+                error=job.error,
+                duplicate_of=job.duplicate_of,
+                filename=job.filename,
+                created_at=job.created_at,
+            )
+        )
+    return AdminImportJobsPage(total=total, jobs=responses, status_counts=status_counts)
 
 
 class EditJobSummary(BaseModel):

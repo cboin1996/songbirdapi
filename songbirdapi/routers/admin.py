@@ -200,6 +200,7 @@ class EditJobSummary(BaseModel):
     job_id: str
     source_song_id: str
     user_id: str
+    username: str
     status: str
     result_song_id: Optional[str]
     error: Optional[str]
@@ -374,6 +375,7 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     # per_user
     users_result = await db.execute(select(User))
     all_users = list(users_result.scalars())
+    all_users_by_id = {u.id: u for u in all_users}
 
     user_song_counts_result = await db.execute(
         select(UserSong.user_id, func.count().label("cnt")).group_by(UserSong.user_id)
@@ -431,6 +433,11 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
                 job_id=j.id,
                 source_song_id=j.source_song_id,
                 user_id=j.user_id,
+                username=(
+                    all_users_by_id[j.user_id].username
+                    if j.user_id in all_users_by_id
+                    else "unknown"
+                ),
                 status=j.status.value,
                 result_song_id=j.result_song_id,
                 error=j.error,
@@ -491,6 +498,11 @@ async def get_edit_jobs(
         base.order_by(EditJob.created_at.desc()).offset(offset).limit(limit)
     )
     jobs = list(result.scalars().all())
+
+    user_ids = {j.user_id for j in jobs}
+    users_result = await db.execute(select(User).where(User.id.in_(user_ids)))
+    users_by_id = {u.id: u for u in users_result.scalars()}
+
     return EditJobsPage(
         total=total,
         status_counts=status_counts,
@@ -499,6 +511,11 @@ async def get_edit_jobs(
                 job_id=j.id,
                 source_song_id=j.source_song_id,
                 user_id=j.user_id,
+                username=(
+                    users_by_id[j.user_id].username
+                    if j.user_id in users_by_id
+                    else "unknown"
+                ),
                 status=j.status.value,
                 result_song_id=j.result_song_id,
                 error=j.error,

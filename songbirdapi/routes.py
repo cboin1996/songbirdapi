@@ -20,6 +20,7 @@ ADMIN_STATS = f"{V1}/admin/stats"
 ADMIN_ERRORS = f"{V1}/admin/errors"
 ADMIN_EDIT_JOBS = f"{V1}/admin/edit-jobs"
 ADMIN_USERS = f"{V1}/admin/users"
+ADMIN_IMPORTS = f"{V1}/admin/imports"
 
 
 def admin_user_path(user_id: str) -> str:

@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import cast, Date, func, select
+from sqlalchemy import cast, or_, Date, func, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from songbirdapi import crud
@@ -35,9 +35,33 @@ class UpdateUserBody(BaseModel):
     is_active: Optional[bool] = None
 
 
-@router.get("/users", response_model=List[UserResponse])
-async def list_users(db: AsyncSession = Depends(get_db)):
-    return await crud.list_users(db)
+class UsersPage(BaseModel):
+    total: int
+    users: List[UserResponse]
+
+
+@router.get("/users", response_model=UsersPage)
+async def list_users(
+    query: str = Query(default=""),
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    base = select(User)
+    if query:
+        pattern = f"%{query}%"
+        base = base.where(
+            or_(
+                User.username.ilike(pattern),
+                User.email.ilike(pattern),
+                cast(User.role, String).ilike(pattern),
+            )
+        )
+    total = (
+        await db.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar_one()
+    result = await db.execute(base.order_by(User.username).offset(offset).limit(limit))
+    return UsersPage(total=total, users=list(result.scalars().all()))
 
 
 @router.patch("/users/{user_id}", response_model=UserResponse)
@@ -307,13 +331,27 @@ class EditJobsPage(BaseModel):
 
 @router.get("/edit-jobs", response_model=EditJobsPage)
 async def get_edit_jobs(
+    query: str = Query(default=""),
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    total = (await db.execute(select(func.count()).select_from(EditJob))).scalar_one()
+    base = select(EditJob)
+    if query:
+        pattern = f"%{query}%"
+        base = base.where(
+            or_(
+                cast(EditJob.status, String).ilike(pattern),
+                EditJob.error.ilike(pattern),
+                EditJob.user_id.ilike(pattern),
+                EditJob.id.ilike(pattern),
+            )
+        )
+    total = (
+        await db.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar_one()
     result = await db.execute(
-        select(EditJob).order_by(EditJob.created_at.desc()).offset(offset).limit(limit)
+        base.order_by(EditJob.created_at.desc()).offset(offset).limit(limit)
     )
     jobs = list(result.scalars().all())
     return EditJobsPage(
@@ -353,33 +391,46 @@ class ErrorsPage(BaseModel):
 
 @router.get("/errors", response_model=ErrorsPage)
 async def get_errors(
+    query: str = Query(default=""),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
+    error_log_base = select(ErrorLog)
+    failed_job_base = select(EditJob).where(EditJob.status == EditJobStatus.failed)
+    if query:
+        pattern = f"%{query}%"
+        error_log_base = error_log_base.where(
+            or_(
+                ErrorLog.message.ilike(pattern),
+                ErrorLog.path.ilike(pattern),
+                ErrorLog.method.ilike(pattern),
+                cast(ErrorLog.status_code, String).ilike(pattern),
+                ErrorLog.user_id.ilike(pattern),
+            )
+        )
+        failed_job_base = failed_job_base.where(
+            or_(
+                EditJob.error.ilike(pattern),
+                EditJob.user_id.ilike(pattern),
+            )
+        )
+
     error_log_count = (
-        await db.execute(select(func.count()).select_from(ErrorLog))
+        await db.execute(select(func.count()).select_from(error_log_base.subquery()))
     ).scalar_one()
     failed_job_count_errors = (
-        await db.execute(
-            select(func.count())
-            .select_from(EditJob)
-            .where(EditJob.status == EditJobStatus.failed)
-        )
+        await db.execute(select(func.count()).select_from(failed_job_base.subquery()))
     ).scalar_one()
     total = error_log_count + failed_job_count_errors
 
     error_logs_result = await db.execute(
-        select(ErrorLog).order_by(ErrorLog.timestamp.desc()).offset(offset).limit(limit)
+        error_log_base.order_by(ErrorLog.timestamp.desc()).offset(offset).limit(limit)
     )
     error_rows = list(error_logs_result.scalars())
 
     failed_jobs_result = await db.execute(
-        select(EditJob)
-        .where(EditJob.status == EditJobStatus.failed)
-        .order_by(EditJob.created_at.desc())
-        .offset(offset)
-        .limit(limit)
+        failed_job_base.order_by(EditJob.created_at.desc()).offset(offset).limit(limit)
     )
     failed_jobs = list(failed_jobs_result.scalars())
 

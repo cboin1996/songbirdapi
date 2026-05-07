@@ -13,7 +13,7 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import cast, func, or_, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from songbirdcore import itunes
@@ -151,27 +151,51 @@ async def _run_import(
 
 @router.get("")
 async def list_imports(
+    query: str = Query(default=""),
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ImportJobsPage:
-    total = (
-        await db.execute(
-            select(func.count())
-            .select_from(ImportJob)
-            .where(ImportJob.user_id == current_user.id)
+    base = (
+        select(ImportJob)
+        .outerjoin(Song, ImportJob.song_id == Song.uuid)
+        .where(ImportJob.user_id == current_user.id)
+    )
+    if query:
+        pattern = f"%{query}%"
+        base = base.where(
+            or_(
+                cast(ImportJob.status, String).ilike(pattern),
+                ImportJob.filename.ilike(pattern),
+                Song.properties["trackName"].astext.ilike(pattern),
+            )
         )
-    ).scalar_one()
-    counts_rows = (
-        await db.execute(
-            select(ImportJob.status, func.count())
-            .where(ImportJob.user_id == current_user.id)
-            .group_by(ImportJob.status)
+
+    count_q = select(func.count()).select_from(base.subquery())
+    total = (await db.execute(count_q)).scalar_one()
+
+    counts_base = (
+        select(ImportJob.status, func.count())
+        .outerjoin(Song, ImportJob.song_id == Song.uuid)
+        .where(ImportJob.user_id == current_user.id)
+    )
+    if query:
+        pattern = f"%{query}%"
+        counts_base = counts_base.where(
+            or_(
+                cast(ImportJob.status, String).ilike(pattern),
+                ImportJob.filename.ilike(pattern),
+                Song.properties["trackName"].astext.ilike(pattern),
+            )
         )
-    ).all()
+    counts_rows = (await db.execute(counts_base.group_by(ImportJob.status))).all()
     status_counts = {row[0].value: row[1] for row in counts_rows}
-    jobs = await crud.list_import_jobs(db, current_user.id, limit=limit, offset=offset)
+
+    result = await db.execute(
+        base.order_by(ImportJob.created_at.desc()).offset(offset).limit(limit)
+    )
+    jobs = list(result.scalars().all())
     responses = []
     for job in jobs:
         track_name: str | None = None

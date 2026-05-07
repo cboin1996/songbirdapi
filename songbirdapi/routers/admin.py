@@ -235,7 +235,9 @@ class AdminStats(BaseModel):
     disk_bytes: int
     disk_total: int
     disk_free: int
+    edit_job_count: int
     failed_job_count: int
+    error_log_count: int
     active_share_tokens: int
     import_count: int
     import_failed_count: int
@@ -254,12 +256,18 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     user_count = (await db.execute(select(func.count()).select_from(User))).scalar_one()
     disk_usage = shutil.disk_usage(config.downloads_dir)
 
+    edit_job_count = (
+        await db.execute(select(func.count()).select_from(EditJob))
+    ).scalar_one()
     failed_job_count = (
         await db.execute(
             select(func.count())
             .select_from(EditJob)
             .where(EditJob.status == EditJobStatus.failed)
         )
+    ).scalar_one()
+    error_log_count = (
+        await db.execute(select(func.count()).select_from(ErrorLog))
     ).scalar_one()
 
     import_count = (
@@ -411,7 +419,9 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         disk_bytes=disk_usage.used,
         disk_total=disk_usage.total,
         disk_free=disk_usage.free,
+        edit_job_count=edit_job_count,
         failed_job_count=failed_job_count,
+        error_log_count=error_log_count,
         active_share_tokens=active_share_tokens,
         import_count=import_count,
         import_failed_count=import_failed_count,
@@ -438,6 +448,7 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
 class EditJobsPage(BaseModel):
     total: int
     jobs: List[EditJobSummary]
+    status_counts: dict[str, int] = {}
 
 
 @router.get("/edit-jobs", response_model=EditJobsPage)
@@ -461,12 +472,28 @@ async def get_edit_jobs(
     total = (
         await db.execute(select(func.count()).select_from(base.subquery()))
     ).scalar_one()
+
+    counts_base = select(EditJob.status, func.count())
+    if query:
+        pattern = f"%{query}%"
+        counts_base = counts_base.where(
+            or_(
+                cast(EditJob.status, String).ilike(pattern),
+                EditJob.error.ilike(pattern),
+                EditJob.user_id.ilike(pattern),
+                EditJob.id.ilike(pattern),
+            )
+        )
+    counts_rows = (await db.execute(counts_base.group_by(EditJob.status))).all()
+    status_counts = {row[0].value: row[1] for row in counts_rows}
+
     result = await db.execute(
         base.order_by(EditJob.created_at.desc()).offset(offset).limit(limit)
     )
     jobs = list(result.scalars().all())
     return EditJobsPage(
         total=total,
+        status_counts=status_counts,
         jobs=[
             EditJobSummary(
                 job_id=j.id,
@@ -498,6 +525,7 @@ class ErrorLogEntry(BaseModel):
 class ErrorsPage(BaseModel):
     total: int
     errors: List[ErrorLogEntry]
+    source_counts: dict[str, int] = {}
 
 
 @router.get("/errors", response_model=ErrorsPage)
@@ -574,4 +602,9 @@ async def get_errors(
         for j in failed_jobs
     ]
     entries.sort(key=lambda e: e.timestamp, reverse=True)
-    return ErrorsPage(total=total, errors=entries[:limit])
+    source_counts: dict[str, int] = {}
+    if error_log_count > 0:
+        source_counts["error_log"] = error_log_count
+    if failed_job_count_errors > 0:
+        source_counts["failed_edit_job"] = failed_job_count_errors
+    return ErrorsPage(total=total, errors=entries[:limit], source_counts=source_counts)

@@ -1,5 +1,14 @@
 import asyncio
 import json
+import os
+import tempfile
+
+
+def _encode_args(dest_path: str) -> list[str]:
+    ext = os.path.splitext(dest_path)[1].lower()
+    if ext == ".m4a":
+        return ["-c:a", "aac", "-b:a", "256k"]
+    return ["-c:a", "libmp3lame", "-q:a", "0"]
 
 
 async def _get_duration(path: str) -> float:
@@ -98,6 +107,27 @@ def _build_volume_and_fades_filter(
     return f"volume='{expr}':eval=frame"
 
 
+def _is_lossless_eligible(
+    volume: float,
+    fades: list[dict],
+    speed: float,
+    normalize: bool,
+    cuts: list[dict],
+) -> bool:
+    if abs(volume - 1.0) >= 1e-6:
+        return False
+    if abs(speed - 1.0) >= 0.001:
+        return False
+    if normalize:
+        return False
+    if fades:
+        return False
+    for c in cuts:
+        if float(c.get("fade_in") or 0) > 0 or float(c.get("fade_out") or 0) > 0:
+            return False
+    return True
+
+
 async def apply_edits(source_path: str, dest_path: str, params: dict) -> None:
     """Run ffmpeg with trim/volume/fades/cut/speed/normalize params. Raises RuntimeError on failure."""
     trim_start: float = params.get("trim_start") or 0.0
@@ -115,6 +145,15 @@ async def apply_edits(source_path: str, dest_path: str, params: dict) -> None:
         for c in (params.get("cuts") or [])
         if float(c.get("end", 0)) > float(c.get("start", 0))
     ]
+
+    if _is_lossless_eligible(volume, fades, speed, normalize, cuts):
+        if cuts:
+            await _stream_copy_with_cuts(
+                source_path, dest_path, trim_start, trim_end, cuts
+            )
+        else:
+            await _stream_copy_simple(source_path, dest_path, trim_start, trim_end)
+        return
 
     if cuts:
         await _apply_with_cuts(
@@ -139,6 +178,93 @@ async def apply_edits(source_path: str, dest_path: str, params: dict) -> None:
             speed,
             normalize,
         )
+
+
+async def _stream_copy_simple(
+    source_path: str,
+    dest_path: str,
+    trim_start: float,
+    trim_end: float | None,
+) -> None:
+    cmd = ["ffmpeg", "-y"]
+    if trim_start > 0:
+        cmd += ["-ss", str(trim_start)]
+    cmd += ["-i", source_path]
+    if trim_end is not None:
+        cmd += ["-to", str(trim_end - trim_start)]
+    cmd += ["-vn", "-c:a", "copy", dest_path]
+    await _run_ffmpeg(cmd)
+
+
+async def _stream_copy_with_cuts(
+    source_path: str,
+    dest_path: str,
+    trim_start: float,
+    trim_end: float | None,
+    cuts: list[dict],
+) -> None:
+    source_dur = trim_end if trim_end is not None else await _get_duration(source_path)
+    cuts_sorted = sorted(cuts, key=lambda c: float(c["start"]))
+
+    segments: list[tuple[float, float]] = []
+    pos = trim_start
+    for cut in cuts_sorted:
+        cs = max(pos, float(cut["start"]))
+        ce = min(source_dur, float(cut["end"]))
+        if ce <= cs:
+            continue
+        if cs > pos:
+            segments.append((pos, cs))
+        pos = ce
+    if pos < source_dur:
+        segments.append((pos, source_dur))
+
+    if not segments:
+        raise RuntimeError("cuts remove the entire audio segment")
+
+    if len(segments) == 1:
+        s, e = segments[0]
+        await _stream_copy_simple(source_path, dest_path, s, e)
+        return
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        seg_files: list[str] = []
+        src_ext = os.path.splitext(source_path)[1] or ".mp3"
+        for i, (s, e) in enumerate(segments):
+            seg_path = os.path.join(tmp_dir, f"seg{i}{src_ext}")
+            await _stream_copy_simple(source_path, seg_path, s, e)
+            seg_files.append(seg_path)
+
+        concat_list = os.path.join(tmp_dir, "concat.txt")
+        with open(concat_list, "w") as f:
+            for p in seg_files:
+                f.write(f"file '{p}'\n")
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            concat_list,
+            "-c:a",
+            "copy",
+            dest_path,
+        ]
+        await _run_ffmpeg(cmd)
+    finally:
+        for p in [*seg_files, concat_list]:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        try:
+            os.rmdir(tmp_dir)
+        except OSError:
+            pass
 
 
 async def _apply_simple(
@@ -172,7 +298,7 @@ async def _apply_simple(
 
     if filters:
         cmd += ["-af", ",".join(filters)]
-    cmd += ["-vn", "-c:a", "libmp3lame", "-q:a", "0", dest_path]
+    cmd += ["-vn", *_encode_args(dest_path), dest_path]
     await _run_ffmpeg(cmd)
 
 
@@ -270,10 +396,7 @@ async def _apply_with_cuts(
         "-map",
         map_arg,
         "-vn",
-        "-c:a",
-        "libmp3lame",
-        "-q:a",
-        "0",
+        *_encode_args(dest_path),
         dest_path,
     ]
     await _run_ffmpeg(cmd)

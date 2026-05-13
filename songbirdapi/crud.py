@@ -284,10 +284,13 @@ async def library_ref_count(db: AsyncSession, song_id: str) -> int:
     return result.scalar_one()
 
 
-async def child_ref_count(db: AsyncSession, song_id: str) -> int:
-    result = await db.execute(
-        select(func.count()).where(Song.parent_song_id == song_id)
-    )
+async def child_ref_count(
+    db: AsyncSession, song_id: str, exclude: str | None = None
+) -> int:
+    stmt = select(func.count()).where(Song.parent_song_id == song_id)
+    if exclude:
+        stmt = stmt.where(Song.uuid != exclude)
+    result = await db.execute(stmt)
     return result.scalar_one()
 
 
@@ -297,6 +300,7 @@ async def delete_song(db: AsyncSession, song_id: str) -> None:
     song = await get_song(db, song_id)
     if not song:
         return
+    await db.execute(delete(SongEditDraft).where(SongEditDraft.song_id == song_id))
     await db.execute(delete(Song).where(Song.uuid == song_id))
     await db.commit()
     if song.file_path and os.path.exists(song.file_path):
@@ -736,6 +740,10 @@ async def list_user_drafts(db: AsyncSession, user_id: str) -> list[dict]:
     result = await db.execute(
         select(SongEditDraft, Song)
         .join(Song, SongEditDraft.song_id == Song.uuid)
+        .join(
+            UserSong,
+            (UserSong.song_id == SongEditDraft.song_id) & (UserSong.user_id == user_id),
+        )
         .where(SongEditDraft.user_id == user_id)
         .order_by(SongEditDraft.updated_at.desc())
     )

@@ -13,7 +13,7 @@ from .. import database
 from ..dependencies import get_current_user, get_db, load_settings
 from ..models import EditJobStatus, Role, Song, User
 from .. import crud
-from ..editor import apply_edits
+from ..editor import apply_edits, _is_lossless_eligible
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _config = load_settings()
@@ -56,6 +56,7 @@ class EditJobResponse(BaseModel):
     status: str
     result_song_id: str | None = None
     error: str | None = None
+    lossless: bool | None = None
 
 
 def _retag_file(file_path: str, merged_props: dict) -> None:
@@ -157,7 +158,8 @@ async def _run_edit_job(
                 )
     else:
         new_uuid = str(_uuid.uuid4())
-        dest_path = os.path.join(_config.downloads_dir, f"{new_uuid}.mp3")
+        ext = os.path.splitext(root_file_path)[1] or ".mp3"
+        dest_path = os.path.join(_config.downloads_dir, f"{new_uuid}{ext}")
         try:
             await apply_edits(root_file_path, dest_path, params)
             final_props = (
@@ -188,15 +190,18 @@ async def _run_edit_job(
                 if source_parent_song_id and source_parent_song_id != root_id:
                     if (
                         await crud.library_ref_count(db, source_parent_song_id) == 0
-                        and await crud.child_ref_count(db, source_parent_song_id) == 0
+                        and await crud.child_ref_count(
+                            db, source_parent_song_id, exclude=source_song_id
+                        )
+                        == 0
                     ):
                         await crud.delete_song(db, source_parent_song_id)
+                        source = await crud.get_song(db, source_song_id)
+                        if source:
+                            source.parent_song_id = root_id
+                            await db.commit()
 
                 await crud.add_to_library(db, user_id, new_uuid)
-                if merged_props is not None and crud._is_publish_eligible(
-                    merged_props, artwork_cached=source_artwork_thumb is not None
-                ):
-                    await crud.publish_song(db, new_uuid, as_original=as_original)
                 await crud.update_edit_job(
                     db, job_id, EditJobStatus.done, result_song_id=new_uuid
                 )
@@ -318,9 +323,26 @@ async def get_edit_job_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="job not found"
         )
+    params = job.params or {}
+    lossless = _is_lossless_eligible(
+        volume=params.get("volume") or 1.0,
+        fades=[
+            f
+            for f in (params.get("fades") or [])
+            if float(f.get("end", 0)) > float(f.get("start", 0))
+        ],
+        speed=params.get("speed") or 1.0,
+        normalize=params.get("normalize") or False,
+        cuts=[
+            c
+            for c in (params.get("cuts") or [])
+            if float(c.get("end", 0)) > float(c.get("start", 0))
+        ],
+    )
     return EditJobResponse(
         job_id=job.id,
         status=job.status.value,
         result_song_id=job.result_song_id,
         error=job.error,
+        lossless=lossless,
     )

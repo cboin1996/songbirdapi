@@ -46,6 +46,10 @@ def library_offline_path(song_id: str) -> str:
     return f"{LIBRARY}/offline/{song_id}"
 
 
+def library_restore_path(song_id: str) -> str:
+    return f"{LIBRARY}/{song_id}/restore"
+
+
 # Songs
 SONGS = f"{V1}/songs/"
 SONGS_LIBRARY = f"{V1}/songs/library"
@@ -130,6 +134,9 @@ def edit_song_path(song_id: str) -> str:
 
 def edit_draft_path(song_id: str) -> str:
     return f"{V1}/edit/songs/{song_id}/draft"
+
+
+EDIT_DRAFTS = f"{V1}/edit/drafts"
 
 
 def edit_job_path(job_id: str) -> str:

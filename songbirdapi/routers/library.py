@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import crud
 from ..crud import _is_publish_eligible
 from ..database import get_db
 from ..dependencies import get_current_user
-from ..models import Song, User, UserSong
+from ..models import Song, SongEditDraft, User, UserSong
 
 router = APIRouter(prefix="/library", tags=["library"])
 
@@ -115,23 +115,46 @@ async def publish_songs(
 ) -> dict:
     # Only publish songs owned by the current user
     result = await db.execute(
-        select(Song.uuid).where(
+        select(Song).where(
             Song.owner_id == current_user.id, Song.uuid.in_(body.song_ids)
         )
     )
-    ids = [row[0] for row in result.all()]
-    if ids:
-        await db.execute(
-            update(Song)
-            .where(Song.uuid.in_(ids))
-            .values(
-                owner_id=None,
-                source="community",
-                parent_song_id=None,
-                root_song_id=None,
-            )
+    songs = list(result.scalars().all())
+    if not songs:
+        return {"published": 0}
+
+    # Clean up edit chains before publishing
+    for song in songs:
+        if song.parent_song_id and song.root_song_id:
+            cur = song.parent_song_id
+            root = song.root_song_id
+            while cur and cur != root:
+                intermediate = await crud.get_song(db, cur)
+                if not intermediate:
+                    break
+                next_id = intermediate.parent_song_id
+                if (
+                    await crud.library_ref_count(db, cur) == 0
+                    and await crud.child_ref_count(db, cur, exclude=song.uuid) == 0
+                ):
+                    await crud.delete_song(db, cur)
+                cur = next_id
+
+    ids = [s.uuid for s in songs]
+    root_ids = [s.root_song_id for s in songs if s.root_song_id]
+    draft_ids = list(set(ids + root_ids))
+    await db.execute(delete(SongEditDraft).where(SongEditDraft.song_id.in_(draft_ids)))
+    await db.execute(
+        update(Song)
+        .where(Song.uuid.in_(ids))
+        .values(
+            owner_id=None,
+            source="community",
+            parent_song_id=None,
+            root_song_id=None,
         )
-        await db.commit()
+    )
+    await db.commit()
     return {"published": len(ids)}
 
 
@@ -183,6 +206,55 @@ async def remove_from_library(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Not in library"
         )
+
+
+class RestoreRequest(BaseModel):
+    target: str
+
+
+@router.post("/{song_id}/restore", status_code=status.HTTP_204_NO_CONTENT)
+async def restore_song(
+    song_id: str,
+    body: RestoreRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    song = await crud.get_song(db, song_id)
+    if not song or song.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Song not found"
+        )
+    target = await crud.get_song(db, body.target)
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Target not found"
+        )
+
+    await crud.remove_from_library(db, current_user.id, song_id)
+    await crud.add_to_library(db, current_user.id, body.target)
+
+    # Walk from current song up to target, deleting orphaned intermediates
+    cur = song_id
+    while cur and cur != body.target:
+        s = await crud.get_song(db, cur)
+        if not s:
+            break
+        next_id = s.parent_song_id
+        if (
+            await crud.library_ref_count(db, cur) == 0
+            and await crud.child_ref_count(db, cur) == 0
+        ):
+            await crud.delete_song(db, cur)
+        cur = next_id
+
+    # Clean draft on source only — target's draft preserves edit state for the editor
+    await db.execute(
+        delete(SongEditDraft).where(
+            SongEditDraft.user_id == current_user.id,
+            SongEditDraft.song_id == song_id,
+        )
+    )
+    await db.commit()
 
 
 @router.patch("/{song_id}/position", response_model=LibraryEntry)

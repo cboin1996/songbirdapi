@@ -226,5 +226,6 @@ async def test_list_user_drafts_requires_library(
     assert resp.status_code == 200
     ids = [d["song_id"] for d in resp.json()]
     assert sample_song.uuid in ids
-    # cleanup draft
+    # cleanup draft + library entry
     await test_client.delete(edit_draft_path(sample_song.uuid), cookies=cookies)
+    await test_client.delete(library_song_path(sample_song.uuid), cookies=cookies)

@@ -6,6 +6,7 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
+    AudioFormat,
     EditJob,
     EditJobStatus,
     ImportJob,
@@ -21,6 +22,7 @@ from .models import (
     User,
     UserOfflineSong,
     UserPlayerState,
+    UserSettings,
     UserSong,
 )
 
@@ -1174,3 +1176,30 @@ async def sync_offline_songs(
 async def clear_offline_songs(db: AsyncSession, user_id: str) -> None:
     await db.execute(delete(UserOfflineSong).where(UserOfflineSong.user_id == user_id))
     await db.commit()
+
+
+# ── User settings ────────────────────────────────────────────────
+
+
+async def get_user_settings(db: AsyncSession, user_id: str) -> UserSettings:
+    result = await db.execute(
+        select(UserSettings).where(UserSettings.user_id == user_id)
+    )
+    row = result.scalar_one_or_none()
+    if row is not None:
+        return row
+    row = UserSettings(user_id=user_id)
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+async def update_user_settings(
+    db: AsyncSession, user_id: str, audio_format: AudioFormat
+) -> UserSettings:
+    settings = await get_user_settings(db, user_id)
+    settings.audio_format = audio_format
+    await db.commit()
+    await db.refresh(settings)
+    return settings

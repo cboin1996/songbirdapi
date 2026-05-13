@@ -156,6 +156,9 @@ def share_download_path(token: str) -> str:
     return f"{V1}/share/{token}/download"
 
 
+# Settings
+SETTINGS = f"{V1}/settings"
+
 # Health / Version
 HEALTH = f"{V1}/health"
 VERSION = f"{V1}/version"

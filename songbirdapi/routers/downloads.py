@@ -1,5 +1,4 @@
 import asyncio
-import enum
 import logging
 import mimetypes
 import os
@@ -18,7 +17,7 @@ from songbirdcore.models.itunes_api import ItunesApiSongModel
 
 from songbirdapi import crud
 from songbirdapi.database import session_scope
-from songbirdapi.models import ErrorLog, Song, User
+from songbirdapi.models import AudioFormat, ErrorLog, Song, User
 from ..dependencies import get_current_user, get_db, load_settings, process_song_url
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
@@ -33,17 +32,11 @@ router = APIRouter(
 config = load_settings()
 
 
-class FileFormats(enum.StrEnum):
-    mp3 = "mp3"
-    m4a = "m4a"
-
-
 class DownloadBody(BaseModel):
     url: str = Field(..., max_length=2048)
     ignore_cache: bool = False
     embed_thumbnail: bool = False
-    file_format: FileFormats = FileFormats.mp3
-    """override cache check, downloading same song to new file"""
+    file_format: AudioFormat = AudioFormat.mp3
 
 
 class DownloadResponse(BaseModel):

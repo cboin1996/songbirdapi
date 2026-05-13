@@ -23,6 +23,7 @@ from .routers import (
     player,
     playlists,
     properties,
+    settings,
     share,
     songs,
 )
@@ -71,6 +72,7 @@ app.include_router(share.router, prefix=_V1)
 app.include_router(edit.router, prefix=_V1)
 app.include_router(imports.router, prefix=_V1)
 app.include_router(playlists.router, prefix=_V1)
+app.include_router(settings.router, prefix=_V1)
 app.include_router(version_router.router, prefix=_V1)
 
 

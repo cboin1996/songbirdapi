@@ -43,6 +43,11 @@ class RepeatMode(str, enum.Enum):
     all = "all"
 
 
+class AudioFormat(str, enum.Enum):
+    mp3 = "mp3"
+    m4a = "m4a"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -303,6 +308,17 @@ class UserOfflineSong(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default="now()"
+    )
+
+
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    audio_format: Mapped[AudioFormat] = mapped_column(
+        SAEnum(AudioFormat), nullable=False, server_default=AudioFormat.mp3.value
     )
 
 

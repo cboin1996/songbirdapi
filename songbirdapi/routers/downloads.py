@@ -81,7 +81,7 @@ async def download(
         youtube.run_download,
         url=url,
         file_path_no_format=file_path,
-        file_format=body.file_format,
+        file_format=body.file_format.value,
         embed_thumbnail=body.embed_thumbnail,
     )
 

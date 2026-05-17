@@ -39,6 +39,61 @@ async def test_search_properties(test_client: AsyncClient, regular_user):
     assert isinstance(resp.json(), list)
 
 
+async def test_search_partial_trackname(
+    test_client: AsyncClient, regular_user, searchable_song
+):
+    cookies = await login(test_client, regular_user)
+    resp = await test_client.get(PROPERTIES, params={"query": "bill"}, cookies=cookies)
+    assert resp.status_code == 200
+    results = resp.json()
+    uuids = [r["uuid"] for r in results]
+    assert searchable_song.uuid in uuids
+
+
+async def test_search_partial_artist(
+    test_client: AsyncClient, regular_user, searchable_song
+):
+    cookies = await login(test_client, regular_user)
+    resp = await test_client.get(PROPERTIES, params={"query": "mich"}, cookies=cookies)
+    assert resp.status_code == 200
+    results = resp.json()
+    uuids = [r["uuid"] for r in results]
+    assert searchable_song.uuid in uuids
+
+
+async def test_search_short_prefix(
+    test_client: AsyncClient, regular_user, searchable_song
+):
+    cookies = await login(test_client, regular_user)
+    resp = await test_client.get(PROPERTIES, params={"query": "billi"}, cookies=cookies)
+    assert resp.status_code == 200
+    results = resp.json()
+    uuids = [r["uuid"] for r in results]
+    assert searchable_song.uuid in uuids
+
+
+async def test_search_case_insensitive(
+    test_client: AsyncClient, regular_user, searchable_song
+):
+    cookies = await login(test_client, regular_user)
+    resp = await test_client.get(
+        PROPERTIES, params={"query": "BILLIE"}, cookies=cookies
+    )
+    assert resp.status_code == 200
+    results = resp.json()
+    uuids = [r["uuid"] for r in results]
+    assert searchable_song.uuid in uuids
+
+
+async def test_search_no_results(test_client: AsyncClient, regular_user):
+    cookies = await login(test_client, regular_user)
+    resp = await test_client.get(
+        PROPERTIES, params={"query": "zzxxyynomatch"}, cookies=cookies
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
 @pytest.mark.xfail(
     reason="sample_song fixture has fake file_path; source returns 500 when file missing instead of 422/409 (routers/properties.py:175). Needs real-mp3 fixture or graceful error.",
     strict=True,

@@ -2,7 +2,7 @@ import uuid as _uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
@@ -109,8 +109,6 @@ async def publish_song(
 
 
 def _owner_filter(user_id: str | None):
-    from sqlalchemy import or_
-
     if user_id:
         return or_(Song.owner_id.is_(None), Song.owner_id == user_id)
     return Song.owner_id.is_(None)
@@ -119,19 +117,20 @@ def _owner_filter(user_id: str | None):
 async def search_songs(
     db: AsyncSession, query: str, user_id: str | None = None, limit: int = 50
 ) -> list[Song]:
+    pattern = f"%{query}%"
+    search_col = (
+        func.coalesce(Song.properties["trackName"].as_string(), "")
+        + " "
+        + func.coalesce(Song.properties["artistName"].as_string(), "")
+        + " "
+        + func.coalesce(Song.properties["collectionName"].as_string(), "")
+    )
     result = await db.execute(
         select(Song)
         .where(
             _owner_filter(user_id),
             Song.parent_song_id.is_(None),
-            func.to_tsvector(
-                "english",
-                func.coalesce(Song.properties["trackName"].as_string(), "")
-                + " "
-                + func.coalesce(Song.properties["artistName"].as_string(), "")
-                + " "
-                + func.coalesce(Song.properties["collectionName"].as_string(), ""),
-            ).op("@@")(func.plainto_tsquery("english", query)),
+            search_col.ilike(pattern),
         )
         .limit(limit)
     )

@@ -7,7 +7,7 @@ name = "songbirdapi"
 authors = [
     {name = "Christian Boin"},
 ]
-version = "0.0.15"
+version = "0.0.16"
 description = "Music download api"
 readme = "README.md"
 requires-python = ">=3.11"

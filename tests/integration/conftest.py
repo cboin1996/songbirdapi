@@ -128,3 +128,30 @@ async def second_song(test_client):
     yield song
     async with _TestingSession() as db:
         await crud.delete_song(db, song.uuid)
+
+
+@pytest_asyncio.fixture(scope="session")
+async def searchable_song(test_client):
+    async with _TestingSession() as db:
+        song = Song(
+            uuid=str(uuid.uuid4()),
+            url="https://example.com/searchable-song",
+            file_path="/tmp/searchable-song.mp3",
+            properties={
+                "trackName": "Billie Jean",
+                "artistName": "Michael Jackson",
+                "collectionName": "Thriller",
+                "artworkUrl100": "https://example.com/art.jpg",
+                "primaryGenreName": "Pop",
+                "trackNumber": 5,
+                "trackCount": 9,
+                "collectionId": "99999",
+                "discNumber": 1,
+                "discCount": 1,
+                "releaseDate": "1982-11-30",
+            },
+        )
+        await crud.insert_song(db, song)
+    yield song
+    async with _TestingSession() as db:
+        await crud.delete_song(db, song.uuid)

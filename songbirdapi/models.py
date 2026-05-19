@@ -62,7 +62,7 @@ class User(Base):
         Boolean, nullable=False, server_default="true"
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
 
 
@@ -84,7 +84,7 @@ class Song(Base):
     owner_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
 
     __table_args__ = (
@@ -103,7 +103,7 @@ class UserSong(Base):
         Text, ForeignKey("songs.uuid", ondelete="CASCADE"), primary_key=True
     )
     added_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
     last_position: Mapped[float] = mapped_column(
         Float, nullable=False, server_default="0"
@@ -124,7 +124,7 @@ class SongPlay(Base):
         Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     played_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
 
     __table_args__ = (
@@ -163,7 +163,7 @@ class UserPlayerState(Base):
         JSONB, nullable=False, server_default="{}"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
 
 
@@ -178,7 +178,7 @@ class SongDownload(Base):
         Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     downloaded_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
 
     __table_args__ = (
@@ -201,7 +201,7 @@ class SongShareToken(Base):
         DateTime(timezone=True), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
 
 
@@ -224,10 +224,10 @@ class EditJob(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     params: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
 
 
@@ -266,7 +266,7 @@ class SongEditDraft(Base):
     )
     params: Mapped[dict] = mapped_column(JSONB, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
 
 
@@ -307,7 +307,7 @@ class UserOfflineSong(Base):
         Text, ForeignKey("songs.uuid", ondelete="CASCADE"), primary_key=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
 
 
@@ -327,7 +327,7 @@ class ErrorLog(Base):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()"
+        DateTime(timezone=True), server_default=func.now()
     )
     level: Mapped[str] = mapped_column(Text, nullable=False)
     path: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -84,7 +84,7 @@ jobs:
             # the old container running. force-recreate guarantees we get
             # the new image.
             docker-compose pull songbirdapi
-            docker-compose run --rm --entrypoint alembic songbirdapi upgrade head
+            docker-compose run -T --rm --entrypoint alembic songbirdapi upgrade head
             docker-compose up -d --force-recreate songbirdapi
             healthy=
             for i in $(seq 1 30); do

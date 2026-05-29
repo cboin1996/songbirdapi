@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from songbirdapi import crud
 from songbirdapi.models import Role, User
 from songbirdapi.security import (
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    REFRESH_TOKEN_EXPIRE_DAYS,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -46,8 +48,20 @@ class UserResponse(BaseModel):
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str):
-    response.set_cookie(ACCESS_COOKIE, access_token, httponly=True, samesite="lax")
-    response.set_cookie(REFRESH_COOKIE, refresh_token, httponly=True, samesite="lax")
+    response.set_cookie(
+        ACCESS_COOKIE,
+        access_token,
+        httponly=True,
+        samesite="lax",
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    response.set_cookie(
+        REFRESH_COOKIE,
+        refresh_token,
+        httponly=True,
+        samesite="lax",
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+    )
 
 
 @router.post("/login")
@@ -103,7 +117,13 @@ async def refresh(
         raise credentials_exception
 
     access_token = create_access_token(user.id, user.role.value, config.jwt_secret)
-    response.set_cookie(ACCESS_COOKIE, access_token, httponly=True, samesite="lax")
+    response.set_cookie(
+        ACCESS_COOKIE,
+        access_token,
+        httponly=True,
+        samesite="lax",
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
     return {"message": "token refreshed"}
 
 

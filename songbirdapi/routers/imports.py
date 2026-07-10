@@ -47,7 +47,12 @@ class ImportJobsPage(BaseModel):
 
 
 async def _run_import(
-    job_id: str, dest_path: str, ext: str, user_id: str, as_original: bool = False
+    job_id: str,
+    dest_path: str,
+    ext: str,
+    user_id: str,
+    as_original: bool = False,
+    original_filename: str = "",
 ) -> None:
     async with _import_semaphore:
         async with database.session_scope() as db:
@@ -70,8 +75,17 @@ async def _run_import(
                     props = {}
                 track_name = props.get("trackName") or ""
                 if not track_name.strip():
-                    props["trackName"] = Path(dest_path).stem
-                    track_name = props["trackName"]
+                    stem = Path(original_filename).stem.strip()
+                    if not stem:
+                        await crud.update_import_job(
+                            db,
+                            job_id,
+                            EditJobStatus.failed,
+                            error="missing track title",
+                        )
+                        return
+                    props["trackName"] = stem
+                    track_name = stem
                 artist_name = props.get("artistName") or ""
 
                 # duplicate detection
@@ -248,7 +262,13 @@ async def start_import(
         job_id = job.id
         job_status = job.status.value
     background_tasks.add_task(
-        _run_import, job_id, dest_path, ext, current_user.id, as_original
+        _run_import,
+        job_id,
+        dest_path,
+        ext,
+        current_user.id,
+        as_original,
+        file.filename or "",
     )
     return ImportJobResponse(job_id=job_id, status=job_status)
 

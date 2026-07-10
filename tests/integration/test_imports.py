@@ -134,9 +134,9 @@ async def test_list_imports_pagination(test_client: AsyncClient, regular_user):
 
 
 async def test_import_untagged_mp3_falls_back_to_filename(
-    test_client: AsyncClient, regular_user
+    test_client: AsyncClient, admin_user
 ):
-    cookies = await login(test_client, regular_user)
+    cookies = await login(test_client, admin_user)
     post = await test_client.post(
         IMPORT,
         files={"file": ("My Song.mp3", MINIMAL_MP3, "audio/mpeg")},

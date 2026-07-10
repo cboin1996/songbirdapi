@@ -1,6 +1,7 @@
 import asyncio
 import os
 import uuid
+from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -64,16 +65,14 @@ async def _run_import(
                 except Exception:
                     pass
 
-                # reject untitled imports
-                track_name = (props or {}).get("trackName") or ""
-                artist_name = (props or {}).get("artistName") or ""
+                # fall back to filename stem when ID3 title tag is absent
+                if props is None:
+                    props = {}
+                track_name = props.get("trackName") or ""
                 if not track_name.strip():
-                    if os.path.exists(dest_path):
-                        os.remove(dest_path)
-                    await crud.update_import_job(
-                        db, job_id, EditJobStatus.failed, error="missing track title"
-                    )
-                    return
+                    props["trackName"] = Path(dest_path).stem
+                    track_name = props["trackName"]
+                artist_name = props.get("artistName") or ""
 
                 # duplicate detection
                 if track_name and artist_name:

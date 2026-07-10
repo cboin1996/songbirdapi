@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from httpx import AsyncClient
 from songbirdapi.routes import AUTH_LOGIN, IMPORT, import_job_path
@@ -129,6 +131,30 @@ async def test_list_imports_pagination(test_client: AsyncClient, regular_user):
     assert "total" in body
     assert "jobs" in body
     assert len(body["jobs"]) <= 1
+
+
+async def test_import_untagged_mp3_falls_back_to_filename(
+    test_client: AsyncClient, regular_user
+):
+    cookies = await login(test_client, regular_user)
+    post = await test_client.post(
+        IMPORT,
+        files={"file": ("My Song.mp3", MINIMAL_MP3, "audio/mpeg")},
+        cookies=cookies,
+    )
+    assert post.status_code == 202
+    job_id = post.json()["job_id"]
+
+    # wait for background task to process
+    for _ in range(20):
+        await asyncio.sleep(0.2)
+        resp = await test_client.get(import_job_path(job_id), cookies=cookies)
+        assert resp.status_code == 200
+        if resp.json()["status"] not in ("pending", "processing"):
+            break
+
+    body = resp.json()
+    assert body["status"] != "failed", f"import failed: {body.get('error')}"
 
 
 async def test_import_job_not_visible_to_other_user(

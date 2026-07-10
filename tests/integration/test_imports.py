@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from httpx import AsyncClient
 from songbirdapi.routes import AUTH_LOGIN, IMPORT, import_job_path
@@ -25,8 +27,8 @@ async def test_start_import_requires_auth(test_client: AsyncClient):
     assert resp.status_code == 401
 
 
-async def test_start_import_invalid_file_type(test_client: AsyncClient, regular_user):
-    cookies = await login(test_client, regular_user)
+async def test_start_import_invalid_file_type(test_client: AsyncClient, import_user):
+    cookies = await login(test_client, import_user)
     resp = await test_client.post(
         IMPORT,
         files={"file": ("notes.txt", b"hello", "text/plain")},
@@ -35,8 +37,8 @@ async def test_start_import_invalid_file_type(test_client: AsyncClient, regular_
     assert resp.status_code == 400
 
 
-async def test_start_import_valid_mp3(test_client: AsyncClient, regular_user):
-    cookies = await login(test_client, regular_user)
+async def test_start_import_valid_mp3(test_client: AsyncClient, import_user):
+    cookies = await login(test_client, import_user)
     resp = await test_client.post(
         IMPORT,
         files={"file": ("song.mp3", MINIMAL_MP3, "audio/mpeg")},
@@ -63,8 +65,8 @@ async def test_list_imports_empty(test_client: AsyncClient, admin_user):
     assert isinstance(body["jobs"], list)
 
 
-async def test_list_imports_after_upload(test_client: AsyncClient, regular_user):
-    cookies = await login(test_client, regular_user)
+async def test_list_imports_after_upload(test_client: AsyncClient, import_user):
+    cookies = await login(test_client, import_user)
     post = await test_client.post(
         IMPORT,
         files={"file": ("track.mp3", MINIMAL_MP3, "audio/mpeg")},
@@ -86,14 +88,14 @@ async def test_get_import_job_requires_auth(test_client: AsyncClient):
     assert resp.status_code == 401
 
 
-async def test_get_import_job_not_found(test_client: AsyncClient, regular_user):
-    cookies = await login(test_client, regular_user)
+async def test_get_import_job_not_found(test_client: AsyncClient, import_user):
+    cookies = await login(test_client, import_user)
     resp = await test_client.get(import_job_path("nonexistent-job-id"), cookies=cookies)
     assert resp.status_code == 404
 
 
-async def test_get_import_job_found(test_client: AsyncClient, regular_user):
-    cookies = await login(test_client, regular_user)
+async def test_get_import_job_found(test_client: AsyncClient, import_user):
+    cookies = await login(test_client, import_user)
     post = await test_client.post(
         IMPORT,
         files={"file": ("album.mp3", MINIMAL_MP3, "audio/mpeg")},
@@ -109,8 +111,8 @@ async def test_get_import_job_found(test_client: AsyncClient, regular_user):
     assert "status" in body
 
 
-async def test_start_import_valid_m4a(test_client: AsyncClient, regular_user):
-    cookies = await login(test_client, regular_user)
+async def test_start_import_valid_m4a(test_client: AsyncClient, import_user):
+    cookies = await login(test_client, import_user)
     resp = await test_client.post(
         IMPORT,
         files={"file": ("song.m4a", MINIMAL_MP3, "audio/mp4")},
@@ -121,8 +123,8 @@ async def test_start_import_valid_m4a(test_client: AsyncClient, regular_user):
     assert "job_id" in body
 
 
-async def test_list_imports_pagination(test_client: AsyncClient, regular_user):
-    cookies = await login(test_client, regular_user)
+async def test_list_imports_pagination(test_client: AsyncClient, import_user):
+    cookies = await login(test_client, import_user)
     resp = await test_client.get(f"{IMPORT}?limit=1&offset=0", cookies=cookies)
     assert resp.status_code == 200
     body = resp.json()
@@ -131,18 +133,41 @@ async def test_list_imports_pagination(test_client: AsyncClient, regular_user):
     assert len(body["jobs"]) <= 1
 
 
-async def test_import_job_not_visible_to_other_user(
-    test_client: AsyncClient, regular_user, admin_user
+async def test_import_untagged_mp3_falls_back_to_filename(
+    test_client: AsyncClient, import_user
 ):
-    reg_cookies = await login(test_client, regular_user)
+    cookies = await login(test_client, import_user)
     post = await test_client.post(
         IMPORT,
-        files={"file": ("private.mp3", MINIMAL_MP3, "audio/mpeg")},
-        cookies=reg_cookies,
+        files={"file": ("My Song.mp3", MINIMAL_MP3, "audio/mpeg")},
+        cookies=cookies,
     )
     assert post.status_code == 202
     job_id = post.json()["job_id"]
 
-    adm_cookies = await login(test_client, admin_user)
-    resp = await test_client.get(import_job_path(job_id), cookies=adm_cookies)
+    for _ in range(20):
+        await asyncio.sleep(0.2)
+        resp = await test_client.get(import_job_path(job_id), cookies=cookies)
+        assert resp.status_code == 200
+        if resp.json()["status"] not in ("pending", "processing"):
+            break
+
+    body = resp.json()
+    assert body["status"] != "failed", f"import failed: {body.get('error')}"
+
+
+async def test_import_job_not_visible_to_other_user(
+    test_client: AsyncClient, import_user, regular_user
+):
+    imp_cookies = await login(test_client, import_user)
+    post = await test_client.post(
+        IMPORT,
+        files={"file": ("private.mp3", MINIMAL_MP3, "audio/mpeg")},
+        cookies=imp_cookies,
+    )
+    assert post.status_code == 202
+    job_id = post.json()["job_id"]
+
+    reg_cookies = await login(test_client, regular_user)
+    resp = await test_client.get(import_job_path(job_id), cookies=reg_cookies)
     assert resp.status_code == 404

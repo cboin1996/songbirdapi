@@ -103,6 +103,23 @@ async def regular_user(test_client):
 
 
 @pytest_asyncio.fixture(scope="session")
+async def import_user(test_client):
+    """Dedicated user for import tests — keeps library state isolated from regular_user."""
+    async with _TestingSession() as db:
+        user = User(
+            id=str(uuid.uuid4()),
+            username=f"testimport_{uuid.uuid4().hex[:6]}",
+            email=f"testimport_{uuid.uuid4().hex[:6]}@test.com",
+            hashed_password=await hash_password("testpass123"),
+            role=Role.user,
+        )
+        await crud.create_user(db, user)
+    yield user
+    async with _TestingSession() as db:
+        await crud.delete_user(db, user.id)
+
+
+@pytest_asyncio.fixture(scope="session")
 async def sample_song(test_client):
     async with _TestingSession() as db:
         song = Song(

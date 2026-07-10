@@ -344,13 +344,13 @@ async def test_admin_imports_requires_auth(test_client: AsyncClient):
 
 
 async def test_admin_imports_shows_all_users(
-    test_client: AsyncClient, admin_user, regular_user
+    test_client: AsyncClient, admin_user, import_user
 ):
-    reg_cookies = await login(test_client, regular_user)
+    imp_cookies = await login(test_client, import_user)
     post = await test_client.post(
         IMPORT,
         files={"file": ("admin-test.mp3", MINIMAL_MP3, "audio/mpeg")},
-        cookies=reg_cookies,
+        cookies=imp_cookies,
     )
     assert post.status_code == 202
 
@@ -359,7 +359,7 @@ async def test_admin_imports_shows_all_users(
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] >= 1
-    assert any(j["username"] == regular_user.username for j in body["jobs"])
+    assert any(j["username"] == import_user.username for j in body["jobs"])
 
 
 async def test_admin_imports_search(test_client: AsyncClient, admin_user):
@@ -393,8 +393,8 @@ async def test_user_imports_search(test_client: AsyncClient, regular_user):
     assert body["jobs"] == []
 
 
-async def test_user_imports_search_by_status(test_client: AsyncClient, regular_user):
-    cookies = await login(test_client, regular_user)
+async def test_user_imports_search_by_status(test_client: AsyncClient, import_user):
+    cookies = await login(test_client, import_user)
     await test_client.post(
         IMPORT,
         files={"file": ("search-test.mp3", MINIMAL_MP3, "audio/mpeg")},

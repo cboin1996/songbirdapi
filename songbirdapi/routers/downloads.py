@@ -18,7 +18,13 @@ from songbirdcore.models.itunes_api import ItunesApiSongModel
 from songbirdapi import crud
 from songbirdapi.database import session_scope
 from songbirdapi.models import AudioFormat, ErrorLog, Song, User
-from ..dependencies import get_current_user, get_db, load_settings, process_song_url
+from ..dependencies import (
+    get_current_user,
+    get_db,
+    load_settings,
+    process_song_url,
+    require_admin,
+)
 
 uvicorn_logger = logging.getLogger("uvicorn.error")
 logger.handlers = uvicorn_logger.handlers
@@ -214,7 +220,9 @@ async def get_download(id: str, request: Request):
 
 
 @router.delete("/{id}")
-async def delete_download(id: str, db: AsyncSession = Depends(get_db)):
+async def delete_download(
+    id: str, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)
+):
     if await crud.child_ref_count(db, id) > 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

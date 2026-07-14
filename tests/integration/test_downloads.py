@@ -52,10 +52,16 @@ async def test_get_download_not_found(test_client: AsyncClient, regular_user):
 # ---------------------------------------------------------------------------
 
 
-async def test_delete_download_nonexistent_is_ok(
-    test_client: AsyncClient, regular_user
-):
+async def test_delete_download_requires_admin(test_client: AsyncClient, regular_user):
     cookies = await login(test_client, regular_user)
+    resp = await test_client.delete(
+        download_path("00000000-0000-0000-0000-000000000000"), cookies=cookies
+    )
+    assert resp.status_code == 403
+
+
+async def test_delete_download_nonexistent_is_ok(test_client: AsyncClient, admin_user):
+    cookies = await login(test_client, admin_user)
     resp = await test_client.delete(
         download_path("00000000-0000-0000-0000-000000000000"), cookies=cookies
     )

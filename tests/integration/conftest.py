@@ -52,7 +52,7 @@ async def test_client():
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="https://test"
     ) as client:
         yield client
     await _engine.dispose()

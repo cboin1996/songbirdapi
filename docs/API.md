@@ -13,12 +13,12 @@ Sources: each section maps 1:1 to a file in `songbirdapi/routers/`.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/login` | public | Verify credentials, set `access_token` + `refresh_token` httpOnly cookies, return user |
-| `POST` | `/logout` | public | Clear both auth cookies |
-| `POST` | `/refresh` | refresh cookie | Issue a new `access_token` cookie if `refresh_token` is valid |
+| `POST` | `/login` | public | Verify credentials, start a session, set `access_token` + `refresh_token` httpOnly cookies, return user. Prunes this user's long-dead sessions and signs out the least recently used one beyond 10 live sessions. Cookies carry `Secure` unless `cookie_secure=false` |
+| `POST` | `/logout` | public | Revoke the session named by the refresh cookie (the access cookie only when there is no refresh cookie, and only if it expired under 24 h ago) and clear both auth cookies. Always 200, even if the database is down |
+| `POST` | `/refresh` | refresh cookie | Issue a new `access_token`; sets **both** cookies. The refresh token rotates when it is older than 60 s, otherwise the same one comes back (see the refresh rules in ARCHITECTURE.md). 401 if the token is invalid, revoked, idle over 30 days, past the 90-day cap, or reused. 5xx on a server or DB error, never 401 |
 | `POST` | `/register` | admin | Create a new user (admin-only — there is no public sign-up) |
 | `GET` | `/me` | cookie | Return the authenticated user |
-| `PATCH` | `/password` | cookie | Change the caller's password (verifies current password) |
+| `PATCH` | `/password` | cookie | Change the caller's password (verifies current password). Signs out every session, the caller's included, and starts a new one: the 204 carries fresh `access_token` + `refresh_token` cookies |
 
 ## admin — `/v1/admin` (`routers/admin.py`)
 

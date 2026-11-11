@@ -2,11 +2,13 @@ import uuid as _uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .sessions import RevokeReason
 from .models import (
     AudioFormat,
+    AuthSession,
     EditJob,
     EditJobStatus,
     ImportJob,
@@ -188,6 +190,119 @@ async def update_user(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+async def create_auth_session(db: AsyncSession, session: AuthSession) -> AuthSession:
+    db.add(session)
+    await db.commit()
+    return session
+
+
+async def lock_auth_session(db: AsyncSession, sid: str) -> Optional[AuthSession]:
+    # FOR UPDATE serialises concurrent refreshes of one session. populate_existing
+    # makes sure we act on the row as it is now, not a copy already in the
+    # identity map from earlier in this request.
+    result = await db.execute(
+        select(AuthSession)
+        .where(AuthSession.id == sid)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_user_and_session(
+    db: AsyncSession, user_id: str, sid: str
+) -> Optional[tuple[User, AuthSession]]:
+    result = await db.execute(
+        select(User, AuthSession)
+        .join(AuthSession, AuthSession.user_id == User.id)
+        .where(User.id == user_id, AuthSession.id == sid)
+    )
+    row = result.one_or_none()
+    return (row[0], row[1]) if row else None
+
+
+async def revoke_auth_session(
+    db: AsyncSession, sid: str, user_id: str, now: datetime, reason: RevokeReason
+) -> None:
+    await db.execute(
+        update(AuthSession)
+        .where(
+            AuthSession.id == sid,
+            AuthSession.user_id == user_id,
+            AuthSession.revoked_at.is_(None),
+        )
+        .values(revoked_at=now, revoke_reason=reason.value)
+    )
+    await db.commit()
+
+
+async def revoke_user_auth_sessions(
+    db: AsyncSession, user_id: str, now: datetime, reason: RevokeReason
+) -> None:
+    """Revoke every live session of the user. The caller commits."""
+    await db.execute(
+        update(AuthSession)
+        .where(
+            AuthSession.user_id == user_id,
+            AuthSession.revoked_at.is_(None),
+        )
+        .values(revoked_at=now, revoke_reason=reason.value)
+    )
+
+
+async def prune_auth_sessions(
+    db: AsyncSession,
+    revoked_before: datetime,
+    idle_before: datetime,
+    created_before: datetime,
+    user_id: Optional[str] = None,
+) -> int:
+    """Delete dead sessions (of one user, or of everyone): revoked before
+    `revoked_before`, idle since before `idle_before`, or created before
+    `created_before`. The caller commits."""
+    stmt = delete(AuthSession).where(
+        or_(
+            AuthSession.revoked_at < revoked_before,
+            AuthSession.last_used_at < idle_before,
+            AuthSession.created_at < created_before,
+        )
+    )
+    if user_id is not None:
+        stmt = stmt.where(AuthSession.user_id == user_id)
+    result = await db.execute(stmt)
+    return result.rowcount
+
+
+async def revoke_stalest_auth_sessions(
+    db: AsyncSession,
+    user_id: str,
+    keep: int,
+    now: datetime,
+    idle_since: datetime,
+    created_since: datetime,
+    reason: RevokeReason,
+) -> None:
+    """Revoke the user's live sessions beyond the `keep` most recently used.
+    The caller commits."""
+    excess = (
+        select(AuthSession.id)
+        .where(
+            AuthSession.user_id == user_id,
+            AuthSession.revoked_at.is_(None),
+            AuthSession.last_used_at >= idle_since,
+            AuthSession.created_at >= created_since,
+        )
+        .order_by(AuthSession.last_used_at.desc(), AuthSession.created_at.desc())
+        .offset(keep)
+    )
+    await db.execute(
+        update(AuthSession)
+        .where(AuthSession.id.in_(excess.scalar_subquery()))
+        .values(revoked_at=now, revoke_reason=reason.value)
+        .execution_options(synchronize_session=False)
+    )
 
 
 async def delete_user(db: AsyncSession, user_id: str) -> bool:

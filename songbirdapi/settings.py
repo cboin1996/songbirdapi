@@ -18,6 +18,16 @@ class SongbirdServerConfig(BaseSettings):
     api_key: str
     jwt_secret: str
     cors_origins: str = "http://localhost:3000"
+    session_idle_days: int = 30
+    session_absolute_days: int = 90
+    refresh_replay_window_seconds: int = 60
+    # Live sessions a user may hold; a login beyond this signs out the stalest.
+    session_max_per_user: int = 10
+    # Kill switch: false turns a reused refresh token into a branch instead of
+    # revoking the session. Use only if false logouts show up in prod.
+    refresh_reuse_detection: bool = True
+    # Secure flag on the auth cookies. Set false only for plain-HTTP local dev.
+    cookie_secure: bool = True
     admin_username: str = ""
     admin_email: str = ""
     admin_password: str = ""

@@ -91,9 +91,11 @@ docker exec songbirdapi-postgres psql -U songbirdapi -d postgres \
 | File                    | Covers                                                         | Notes                                            |
 |-------------------------|----------------------------------------------------------------|--------------------------------------------------|
 | unit/test_security.py   | password hashing, JWT access/refresh encode+decode             | pure functions                                   |
+| unit/test_sessions.py   | `decide_refresh` rules at literal times                        | pure functions                                   |
 | unit/test_editor.py     | audio editor cut/fade math (offset translation, filter graphs) | pure functions                                   |
 | integration/test_admin.py     | /v1/admin/{stats,errors,users,edit-jobs} RBAC + CRUD     |                                                  |
 | integration/test_auth.py      | login/logout/refresh, /me, register, change-password     |                                                  |
+| integration/test_sessions.py  | refresh rotation, hold/replay/branch/reuse, revocation, cap, prune, Secure cookies | app clock shifted forward; forced-interleave lock test |
 | integration/test_downloads.py | POST/GET/DELETE /v1/download                             | does not exercise the actual yt-dlp path         |
 | integration/test_edit.py      | save/get/delete draft, create+poll edit job              | jobs run as background tasks against the test DB |
 | integration/test_imports.py   | upload mp3/m4a, list, get, isolation between users       | uses minimal mp3 byte string                     |

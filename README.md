@@ -72,6 +72,12 @@ Config is loaded from `<ENV>.env` at the repo root (selected by the `ENV` env va
 | `admin_username` | no | `""` | Username of the admin account seeded on startup (skipped if blank) |
 | `admin_email` | no | `""` | Email of the seeded admin |
 | `admin_password` | no | `""` | Password of the seeded admin |
+| `session_idle_days` | no | `30` | A session dies after this many days without a refresh |
+| `session_absolute_days` | no | `90` | A session dies this many days after login, however active |
+| `refresh_replay_window_seconds` | no | `60` | How long after a rotation the previous token is still accepted |
+| `refresh_reuse_detection` | no | `true` | `false`: a reused refresh token is branched instead of revoking the session (kill switch) |
+| `session_max_per_user` | no | `10` | Live sessions per user; a login beyond this signs out the least recently used |
+| `cookie_secure` | no | `true` | `Secure` flag on the auth cookies. Set `COOKIE_SECURE=false` for local development over plain HTTP (Safari drops `Secure` cookies on `http://localhost`) |
 | `cors_origins` | no | `http://localhost:3000` | Comma-separated list of allowed CORS origins |
 | `postgres_host` | no | `localhost` | PostgreSQL host (`songbirdapi-postgres` in Docker) |
 | `postgres_port` | no | `5432` | PostgreSQL port |
@@ -81,7 +87,7 @@ Config is loaded from `<ENV>.env` at the repo root (selected by the `ENV` env va
 | `downloads_dir` | no | `<root>/data/downloads` | Where audio files land |
 | `artwork_dir` | no | `<root>/data/artwork` | Where cached artwork lives |
 
-> Any new `SongbirdServerConfig` fields must be added to the production `docker.env` before deploying.
+> Any new `SongbirdServerConfig` fields must be added to the production `docker.env` before deploying. The session and cookie settings above all have defaults, so production only needs them to change one.
 
 ## Deeper docs
 

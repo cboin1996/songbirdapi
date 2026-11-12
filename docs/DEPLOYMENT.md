@@ -89,7 +89,7 @@ Note: API container writes files as root (UID 0). Cleaning from the host require
 
 ```
 ~/songbird/
-├── docker-compose.yml   # pulled from songbird-keebox repo
+├── docker-compose.yml   # source of truth: the songbird-keebox repo
 ├── .env                 # prod secrets (NOT committed)
 ```
 
@@ -110,6 +110,14 @@ CORS_ORIGINS=https://songbird.kee-flix.com
 ADMIN_USERNAME=<username>
 ADMIN_EMAIL=<email>
 ADMIN_PASSWORD=<password>
+
+# Optional session and cookie settings (defaults shown; docker-compose.yml passes them through)
+# COOKIE_SECURE=true
+# SESSION_IDLE_DAYS=30
+# SESSION_ABSOLUTE_DAYS=90
+# SESSION_MAX_PER_USER=10
+# REFRESH_REPLAY_WINDOW_SECONDS=60
+# REFRESH_REUSE_DETECTION=true
 ```
 
 > Any new field added to `SongbirdServerConfig` in `settings.py` must be added here before redeploying, otherwise the container will crash on boot.
@@ -143,10 +151,24 @@ docker-compose up -d songbirdapi
 
 Rollback to a prior tag:
 ```bash
-docker-compose pull cboin/songbirdapi:<prior-tag>
-docker-compose run --rm --entrypoint alembic songbirdapi downgrade <prior-rev>
+docker-compose stop songbirdapi
+# set the prior image tag in the compose file or env, then:
+docker-compose pull songbirdapi
 docker-compose up -d songbirdapi
 ```
+Do not roll back by re-running the old tag's deploy workflow, and do not run `alembic upgrade head` with the old image: it fails with `No such revision` because the database is already at the session migration, and `set -e` stops the deploy before the image switches. Afterwards, unpin the old tag. Run `alembic downgrade` only when a migration changes data the old code reads. The session migration is not one: the old image ignores `auth_sessions`, and startup `create_all` leaves the existing table alone. A downgrade would drop the table, and while it runs the new container, if still up, answers every authenticated request with a 500.
+
+## Sessions: deploy, rollback, risks
+
+- **Deploy order: either.** The new web middleware works against the old API (it forwards the rotated cookie only if the API sends one). The new API with the old middleware also works: the old middleware drops the rotated refresh cookie, so the browser keeps presenting the token it already had, which the API treats as a replay or a branch and never as reuse. It costs a few extra branches until web ships, so the release command's API-first order is fine.
+- **Nothing needs to change on keebox for the release.** Every new setting has a default that matches production (`COOKIE_SECURE=true`, 30 d idle, 90 d cap, 10 sessions, 60 s window, reuse detection on). Only to change one of them, add its line to the API's `environment:` in `~/songbird/docker-compose.yml`; the `songbird-keebox` repo's `docker-compose.yml` (the source of truth for that file) already lists all six.
+- **First deploy logs everyone out once.** Tokens issued before sessions existed have no `sid` and get 401. Tell users before the release; nothing in the deploy does it.
+- **Rollback to the old API** turns refresh tokens back into stateless tokens that live as long as their `exp` (up to 90 days) with no revocation, so keep it brief. Sessions created by the new code survive the rollback and work again after rolling forward, but a password change made during the rollback does not revoke them. Tokens the old code issued have no `sid`, so those users sign in once more after rolling forward.
+- **Watch the logs after deploy** for `refresh token reuse: revoked session`. A few are theft or a stale browser; a stream of them from users who were only using the app means false logouts. To stop revoking while you investigate (reuse is then logged and branched), set `REFRESH_REUSE_DETECTION=false` in `~/songbird/.env` and run `docker-compose up -d songbirdapi`. `restart` does not re-read `.env`, and the variable only reaches the container if `~/songbird/docker-compose.yml` lists it (add the line from the `songbird-keebox` repo's copy first). A value other than `true`/`false` stops the API from booting. At startup the API logs `sessions: idle=… reuse_detection=… cookie_secure=…`; check it to confirm the setting took.
+- **Accepted risks of the design:**
+  - A refresh token one generation old stays usable until the current holder refreshes again. While a user is idle (up to 30 days) a copy from a backup or proxy log could take the session over; it is noticed when the user returns.
+  - With `refresh_reuse_detection=false`, any token ever issued in a session is valid until logout, idle expiry or the 90-day cap.
+  - An access token is checked against the session on every request, so logout and password change take effect at once; idle expiry is only enforced at refresh.
 
 ## Quick reference
 

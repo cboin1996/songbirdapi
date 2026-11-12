@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import cast, or_, Date, func, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from songbirdapi import crud
+from songbirdapi import crud, security
 from songbirdapi.models import (
     EditJob,
     EditJobStatus,
@@ -23,6 +23,7 @@ from songbirdapi.models import (
     UserSong,
 )
 from songbirdapi.routers.auth import UserResponse
+from songbirdapi.sessions import RevokeReason
 from songbirdapi.security import verify_password
 from ..dependencies import get_db, get_current_user, load_settings, require_admin
 
@@ -73,6 +74,15 @@ async def list_users(
 async def update_user(
     user_id: str, body: UpdateUserBody, db: AsyncSession = Depends(get_db)
 ):
+    if body.is_active is False:
+        # Lock first so a login in flight either lands before the revoke below
+        # or waits and finds the account disabled.
+        await crud.lock_user(db, user_id)
+        # Otherwise re-enabling the account would bring every session back,
+        # stolen ones included. update_user commits both changes together.
+        await crud.revoke_user_auth_sessions(
+            db, user_id, security.utcnow(), reason=RevokeReason.DISABLED
+        )
     user = await crud.update_user(db, user_id, role=body.role, is_active=body.is_active)
     if not user:
         raise HTTPException(

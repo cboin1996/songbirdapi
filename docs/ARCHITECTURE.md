@@ -47,10 +47,11 @@ Unhandled exceptions are caught by the `unhandled_exception_handler` registered 
 
 | Path | Responsibility |
 |---|---|
-| `songbirdapi/server.py` | FastAPI app, CORS, lifespan (init_engine + create_schema + seed_admin), router mounting under `/v1`, global exception handler |
+| `songbirdapi/server.py` | FastAPI app, CORS, lifespan (init_engine + create_schema + seed_admin + log session settings + prune dead sessions), router mounting under `/v1`, global exception handler |
 | `songbirdapi/settings.py` | `SongbirdServerConfig` (pydantic-settings) — reads `<ENV>.env` |
-| `songbirdapi/dependencies.py` | `get_current_user` (decode JWT cookie), `require_admin`, `load_settings`, `process_song_url` |
-| `songbirdapi/security.py` | Password hashing (bcrypt), `create_access_token`/`create_refresh_token` (15 min / 7 day), `decode_token` |
+| `songbirdapi/dependencies.py` | `get_current_auth` / `get_current_user` (decode JWT cookie, check the session is live), `require_admin`, `load_settings`, `process_song_url` |
+| `songbirdapi/security.py` | Password hashing (bcrypt), `create_access_token` (15 min), `make_refresh_jwt`, `utcnow` (the app clock), `decode_token` |
+| `songbirdapi/sessions.py` | `decide_refresh`: the pure refresh-token rules (see Auth model) |
 | `songbirdapi/database.py` | Async engine + sessionmaker, `get_db` dependency, `seed_admin`, `dispose_engine` |
 | `songbirdapi/models.py` | SQLAlchemy declarative models (single `Base`) |
 | `songbirdapi/crud.py` | Reusable query/mutation helpers per entity |
@@ -93,19 +94,39 @@ The semaphore lives in process memory; multiple workers (e.g. multiple uvicorn r
 
 ## Auth model
 
-| Token | Lifetime | Cookie | Type claim |
+| Token | Lifetime | Cookie | Claims |
 |---|---|---|---|
-| Access | 15 min | `access_token` (httpOnly, samesite=lax) | `access` |
-| Refresh | 7 days | `refresh_token` (httpOnly, samesite=lax) | `refresh` |
+| Access | 15 min | `access_token` (httpOnly, `Secure`, samesite=lax) | `sub`, `role`, `sid`, `type=access` |
+| Refresh | up to 90 days from login | `refresh_token` (httpOnly, `Secure`, samesite=lax) | `sub`, `sid`, `jti`, `type=refresh` |
 
-- `POST /v1/auth/login` validates credentials with bcrypt and writes both cookies.
-- `Depends(get_current_user)` reads `access_token` from cookies, decodes with `jwt_secret`, asserts `type=access`, then loads the `User`. 401 on any failure.
-- `POST /v1/auth/refresh` rotates the access cookie if the refresh cookie is still valid.
-- `POST /v1/auth/logout` deletes both cookies.
+A login is a **session** (`auth_sessions` row, id = `sid`). The session slides: it dies after 30 days without a refresh, or 90 days after login regardless. Both limits are settings (`session_idle_days`, `session_absolute_days`). A user holds at most `session_max_per_user` (10) live sessions: a login beyond that revokes the least recently used. `Secure` on the cookies is the `cookie_secure` setting (on by default, off for plain-HTTP local dev).
+
+- `POST /v1/auth/login` validates credentials with bcrypt, prunes the user's long-dead sessions, creates the session, and writes both cookies. The refresh cookie's `Max-Age` is the time left to the 90-day cap.
+- `Depends(get_current_user)` decodes the `access_token` cookie, asserts `type=access`, and loads the user and its session in one query. 401 if the token has no `sid`, the session is missing, revoked or past the cap, or the user is inactive. A revoked session therefore stops working on the next request.
+- `POST /v1/auth/logout` revokes the session named by the refresh cookie (or, with no refresh cookie, by an access cookie that expired under 24 h ago), deletes both cookies, and always answers 200.
+- Disabling a user (`PATCH /v1/admin/users/{id}`) revokes all their sessions. At startup the API deletes dead sessions of every user.
+- `PATCH /v1/auth/password` revokes every session of the user, the caller's included, and starts a new one for the caller (a thief who copied this device's cookies shares its session).
 - `Depends(require_admin)` chains `get_current_user` and asserts `role=admin`.
 - `POST /v1/auth/register` is gated behind `require_admin` — there is no public sign-up.
 
-The browser keeps the cookies httpOnly so JS can't read them; `songbirdweb`'s middleware refreshes the access cookie transparently when expired.
+### Refresh rules (`sessions.decide_refresh`)
+
+A refresh rotates the refresh token once it is older than 60 s: the session row keeps the current `jti` and the one before it (`prev_jti`), and the route locks the row (`SELECT … FOR UPDATE`) so concurrent refreshes line up. Judged in order, for the presented `jti`:
+
+| Presented | Condition | Outcome |
+|---|---|---|
+| any | session revoked, idle over 30 d, or past the 90 d cap | 401 |
+| current | rotated within the last 60 s | **hold**: same token back, no rotation (back-to-back refreshes from a page load and a first play) |
+| current | rotated longer ago | **rotate**: new token |
+| previous | within 60 s of the rotation | **replay**: current token back (two tabs, a quick retry) |
+| previous | longer ago | **branch**: new token; the unused one is dead (a response lost in a dead zone) |
+| older | — | **reuse**: the session is revoked and committed, then 401 |
+
+`refresh_reuse_detection=false` turns *reuse* into *branch* and logs it; use it only if false logouts show up.
+
+Login, password change and an admin disable each lock the user's row (`SELECT … FOR UPDATE`) first. That runs them one at a time per user, so a login in flight during a password change or disable cannot keep a session the revoke-all missed, and simultaneous logins cannot pass the session cap. A login re-checks the password hash and `is_active` after taking the lock.
+
+The browser keeps the cookies httpOnly so JS can't read them. `songbirdweb`'s middleware refreshes server-side on a page navigation once the access token has expired and hands the API's `Set-Cookie` lines to the browser unchanged; `app/lib/data.ts` does the same from the client.
 
 ## Queue sources
 
@@ -128,6 +149,7 @@ All tables live in the `public` schema and are managed by Alembic. The schema is
 
 | Table | Key fields | Notes |
 |---|---|---|
+| `auth_sessions` | `id` PK (= `sid`), `user_id` FK (cascade), `jti`, `prev_jti`, `created_at`, `last_used_at`, `rotated_at`, `revoked_at`, `revoke_reason`, `user_agent` | one row per login; timestamps written by the app clock |
 | `users` | `id` PK, `username` U, `email` U, `role` enum(`admin`/`user`), `is_active` | bcrypt `hashed_password` |
 | `songs` | `uuid` PK, `url`, `file_path`, `properties` JSONB, `artwork_thumb`, `artwork_full`, `parent_song_id` FK, `root_song_id` FK, `owner_id`, `source` | GIN index on `properties`; `parent_song_id` chains edit children |
 | `user_songs` | (`user_id`, `song_id`) PK | per-user library; tracks `last_position`, `last_played_at` |

@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from songbirdapi.dependencies import load_settings
 
-from . import database
+from . import database, security
 from .models import ErrorLog
 from .routers import (
     admin,
@@ -37,6 +37,30 @@ logger.setLevel(uvicorn_logger.level)
 _settings = load_settings()
 
 
+async def _prune_sessions_at_startup():
+    """Log the session settings, then delete dead sessions of every user, so
+    users who never log in again don't keep their rows forever. A failure
+    here never stops the API from starting."""
+    s = _settings
+    uvicorn_logger.info(
+        "sessions: idle=%sd absolute=%sd replay_window=%ss max_per_user=%s "
+        "reuse_detection=%s cookie_secure=%s",
+        s.session_idle_days,
+        s.session_absolute_days,
+        s.refresh_replay_window_seconds,
+        s.session_max_per_user,
+        s.refresh_reuse_detection,
+        s.cookie_secure,
+    )
+    try:
+        async with database._session_factory() as db:
+            pruned = await auth.prune_dead_sessions(db, security.utcnow(), s)
+            await db.commit()
+        uvicorn_logger.info("sessions: pruned %s dead sessions", pruned)
+    except Exception:
+        uvicorn_logger.exception("sessions: startup prune failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     database.init_engine(_settings.postgres_dsn)
@@ -44,6 +68,7 @@ async def lifespan(app: FastAPI):
     await database.seed_admin(
         _settings.admin_username, _settings.admin_email, _settings.admin_password
     )
+    await _prune_sessions_at_startup()
     yield
     await database.dispose_engine()
 

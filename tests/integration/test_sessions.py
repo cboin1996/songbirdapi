@@ -83,7 +83,7 @@ async def test_refresh_rotates_and_sets_both_cookies(
     assert _set_cookie_attrs(resp, "access_token")["value"]
 
 
-async def test_concurrent_refresh_with_the_same_token_agrees_on_one_cookie(
+async def test_refresh_twice_with_the_same_token_agrees_on_one_cookie(
     test_client: AsyncClient, fresh_user, clock
 ):
     tokens = await _login(test_client, fresh_user)
@@ -442,19 +442,19 @@ async def test_access_token_without_session_claim_is_rejected(
 
 
 async def test_password_change_signs_out_every_session_and_signs_this_device_in_again(
-    test_client: AsyncClient, regular_user
+    test_client: AsyncClient, fresh_user
 ):
     """A thief holding a copy of this device's cookies shares its session, so the
     caller's session is revoked too and the caller gets a fresh one."""
     from songbirdapi.routes import AUTH_PASSWORD
 
-    phone = await _login(test_client, regular_user)
-    laptop = await _login(test_client, regular_user)
+    phone = await _login(test_client, fresh_user)
+    laptop = await _login(test_client, fresh_user)
 
     test_client.cookies.clear()
     resp = await test_client.patch(
         AUTH_PASSWORD,
-        json={"current_password": "testpass123", "new_password": "testpass123"},
+        json={"current_password": "testpass123", "new_password": "newpass456"},
         cookies=laptop,
     )
     assert resp.status_code == 204
@@ -468,6 +468,15 @@ async def test_password_change_signs_out_every_session_and_signs_this_device_in_
         assert (await _me(test_client, old["access_token"])).status_code == 401
     assert (await _me(test_client, fresh["access_token"])).status_code == 200
     assert (await _refresh(test_client, fresh["refresh_token"])).status_code == 200
+
+    test_client.cookies.clear()
+    old = await test_client.post(
+        AUTH_LOGIN, json={"username": fresh_user.username, "password": "testpass123"}
+    )
+    new = await test_client.post(
+        AUTH_LOGIN, json={"username": fresh_user.username, "password": "newpass456"}
+    )
+    assert (old.status_code, new.status_code) == (401, 200)
 
 
 async def test_login_prunes_sessions_dead_for_over_a_week(
@@ -801,3 +810,173 @@ async def test_login_stores_the_user_agent_cut_to_256_characters(
     assert resp.status_code == 200
 
     assert (await _only_session(fresh_user)).user_agent == "x" * 256
+
+
+# --- logins racing other changes -------------------------------------------
+
+
+def _new_client() -> AsyncClient:
+    from httpx import ASGITransport
+
+    from songbirdapi.server import app
+
+    return AsyncClient(transport=ASGITransport(app=app), base_url="https://test")
+
+
+def _pause_first_password_check(monkeypatch):
+    """Hold the first login between checking the password and saving its
+    session, so a test can change the account in that gap."""
+    import asyncio
+
+    from songbirdapi.routers import auth as auth_router
+
+    checked, release = asyncio.Event(), asyncio.Event()
+    real = auth_router.verify_password
+    seen = []
+
+    async def paused(plain, hashed):
+        ok = await real(plain, hashed)
+        seen.append(plain)
+        if len(seen) == 1:
+            checked.set()
+            await release.wait()
+        return ok
+
+    monkeypatch.setattr(auth_router, "verify_password", paused)
+    return checked, release
+
+
+async def test_login_in_flight_during_a_password_change_does_not_survive(
+    fresh_user, monkeypatch
+):
+    import asyncio
+
+    from songbirdapi.routes import AUTH_PASSWORD
+
+    async with _new_client() as owner:
+        owner_tokens = await _login(owner, fresh_user)
+        checked, release = _pause_first_password_check(monkeypatch)
+        async with _new_client() as thief:
+            attempt = asyncio.create_task(
+                thief.post(
+                    AUTH_LOGIN,
+                    json={"username": fresh_user.username, "password": "testpass123"},
+                )
+            )
+            await checked.wait()
+            changed = await owner.patch(
+                AUTH_PASSWORD,
+                json={"current_password": "testpass123", "new_password": "newpass456"},
+                cookies=owner_tokens,
+            )
+            assert changed.status_code == 204
+            release.set()
+            resp = await attempt
+
+    assert resp.status_code == 401
+    live = [r for r in await _session_rows(fresh_user) if r.revoked_at is None]
+    assert len(live) == 1  # only the session the password change issued
+
+
+async def test_login_in_flight_during_a_disable_does_not_survive(
+    fresh_user, admin_user, monkeypatch
+):
+    import asyncio
+
+    from songbirdapi.routes import admin_user_path
+
+    async with _new_client() as admin_client:
+        admin = await _login(admin_client, admin_user)
+        checked, release = _pause_first_password_check(monkeypatch)
+        async with _new_client() as thief:
+            attempt = asyncio.create_task(
+                thief.post(
+                    AUTH_LOGIN,
+                    json={"username": fresh_user.username, "password": "testpass123"},
+                )
+            )
+            await checked.wait()
+            disabled = await admin_client.patch(
+                admin_user_path(fresh_user.id),
+                json={"is_active": False},
+                cookies=admin,
+            )
+            assert disabled.status_code == 200
+            release.set()
+            resp = await attempt
+
+    assert resp.status_code in (401, 403)
+    assert [r for r in await _session_rows(fresh_user) if r.revoked_at is None] == []
+
+
+async def test_simultaneous_logins_still_respect_the_session_cap(
+    fresh_user, monkeypatch
+):
+    import asyncio
+
+    from songbirdapi.dependencies import load_settings
+    from songbirdapi.routers import auth as auth_router
+
+    capped = load_settings().model_copy(update={"session_max_per_user": 2})
+    monkeypatch.setattr(auth_router, "load_settings", lambda: capped)
+
+    async def one_login():
+        async with _new_client() as client:
+            return await client.post(
+                AUTH_LOGIN,
+                json={"username": fresh_user.username, "password": "testpass123"},
+            )
+
+    results = await asyncio.gather(*(one_login() for _ in range(6)))
+
+    assert all(r.status_code == 200 for r in results)
+    live = [r for r in await _session_rows(fresh_user) if r.revoked_at is None]
+    assert len(live) == 2
+
+
+async def test_disable_that_waits_for_a_login_in_progress_revokes_its_session(
+    fresh_user, admin_user, monkeypatch
+):
+    """The other order: the login already holds the user, the disable arrives
+    and has to wait, then must still revoke the session that login saves."""
+    import asyncio
+
+    from songbirdapi.routers import auth as auth_router
+    from songbirdapi.routes import admin_user_path
+
+    holding, release = asyncio.Event(), asyncio.Event()
+    real_prune = auth_router.prune_dead_sessions
+    first = []
+
+    async def hold_after_lock(*args, **kwargs):
+        if not first:
+            first.append(1)
+            holding.set()
+            await release.wait()
+        return await real_prune(*args, **kwargs)
+
+    async with _new_client() as admin_client:
+        admin = await _login(admin_client, admin_user)
+        monkeypatch.setattr(auth_router, "prune_dead_sessions", hold_after_lock)
+        async with _new_client() as user_client:
+            attempt = asyncio.create_task(
+                user_client.post(
+                    AUTH_LOGIN,
+                    json={"username": fresh_user.username, "password": "testpass123"},
+                )
+            )
+            await holding.wait()
+            disable = asyncio.create_task(
+                admin_client.patch(
+                    admin_user_path(fresh_user.id),
+                    json={"is_active": False},
+                    cookies=admin,
+                )
+            )
+            await asyncio.sleep(0.5)  # let the disable reach the lock
+            release.set()
+            login_resp, disable_resp = await asyncio.gather(attempt, disable)
+
+    assert login_resp.status_code == 200
+    assert disable_resp.status_code == 200
+    assert [r for r in await _session_rows(fresh_user) if r.revoked_at is None] == []

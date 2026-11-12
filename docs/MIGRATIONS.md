@@ -77,6 +77,7 @@ Run migrations from a one-shot container (the `--rm` form) before bringing the s
 
 ## Recent migrations
 
+- **`b801ee18954c_add_auth_sessions_table.py`**: Adds `auth_sessions` (one row per login: current and previous refresh `jti`, activity timestamps, revocation). Sessions are created from the first login after this release; tokens issued before it carry no session id, so everyone signs in once.
 - **`2f5adcc84df4_add_queue_sources_to_user_player_state.py`** (keebox-beta-1+): Adds `queue_sources` JSONB column to `user_player_state`. Clients now send queue metadata (source label, href, playlist ID) to restore playback context on reload.
 
 ## Adding a brand-new migration directory

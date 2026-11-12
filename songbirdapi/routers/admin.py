@@ -75,6 +75,9 @@ async def update_user(
     user_id: str, body: UpdateUserBody, db: AsyncSession = Depends(get_db)
 ):
     if body.is_active is False:
+        # Lock first so a login in flight either lands before the revoke below
+        # or waits and finds the account disabled.
+        await crud.lock_user(db, user_id)
         # Otherwise re-enabling the account would bring every session back,
         # stolen ones included. update_user commits both changes together.
         await crud.revoke_user_auth_sessions(

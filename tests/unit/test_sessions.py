@@ -120,3 +120,13 @@ def test_revoked_session_is_expired(presented):
     state = _state(revoked_at=LOGIN + timedelta(seconds=1))
     now = LOGIN + timedelta(seconds=2)
     assert decide_refresh(state, presented, now, POLICY) is Decision.EXPIRED
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_session_max_per_user_below_one_stops_startup(bad):
+    from pydantic import ValidationError
+
+    from songbirdapi.settings import SongbirdServerConfig
+
+    with pytest.raises(ValidationError):
+        SongbirdServerConfig(api_key="k", jwt_secret="s", session_max_per_user=bad)

@@ -47,7 +47,7 @@ Unhandled exceptions are caught by the `unhandled_exception_handler` registered 
 
 | Path | Responsibility |
 |---|---|
-| `songbirdapi/server.py` | FastAPI app, CORS, lifespan (init_engine + create_schema + seed_admin), router mounting under `/v1`, global exception handler |
+| `songbirdapi/server.py` | FastAPI app, CORS, lifespan (init_engine + create_schema + seed_admin + log session settings + prune dead sessions), router mounting under `/v1`, global exception handler |
 | `songbirdapi/settings.py` | `SongbirdServerConfig` (pydantic-settings) — reads `<ENV>.env` |
 | `songbirdapi/dependencies.py` | `get_current_auth` / `get_current_user` (decode JWT cookie, check the session is live), `require_admin`, `load_settings`, `process_song_url` |
 | `songbirdapi/security.py` | Password hashing (bcrypt), `create_access_token` (15 min), `make_refresh_jwt`, `utcnow` (the app clock), `decode_token` |
@@ -123,6 +123,8 @@ A refresh rotates the refresh token once it is older than 60 s: the session row 
 | older | — | **reuse**: the session is revoked and committed, then 401 |
 
 `refresh_reuse_detection=false` turns *reuse* into *branch* and logs it; use it only if false logouts show up.
+
+Login, password change and an admin disable each lock the user's row (`SELECT … FOR UPDATE`) first. That runs them one at a time per user, so a login in flight during a password change or disable cannot keep a session the revoke-all missed, and simultaneous logins cannot pass the session cap. A login re-checks the password hash and `is_active` after taking the lock.
 
 The browser keeps the cookies httpOnly so JS can't read them. `songbirdweb`'s middleware refreshes server-side on a page navigation once the access token has expired and hands the API's `Set-Cookie` lines to the browser unchanged; `app/lib/data.ts` does the same from the client.
 

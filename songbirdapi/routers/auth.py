@@ -81,7 +81,7 @@ def _set_auth_cookies(
     refresh_token: str,
     refresh_max_age: int,
     secure: bool,
-):
+) -> None:
     response.set_cookie(
         ACCESS_COOKIE,
         access_token,
@@ -106,7 +106,7 @@ def _issue_session_cookies(
     session: AuthSession,
     config: SongbirdServerConfig,
     now: datetime,
-):
+) -> None:
     absolute = policy_from_settings(config).absolute
     refresh_token = make_refresh_jwt(session, absolute, config.jwt_secret)
     access_token = create_access_token(
@@ -170,6 +170,19 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )
     if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled"
+        )
+
+    # Take the user's lock before saving anything, then check again: a password
+    # change or disable that landed while we were verifying must win.
+    verified_hash = user.hashed_password
+    locked = await crud.lock_user(db, user.id)
+    if locked is None or locked.hashed_password != verified_hash:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+        )
+    if not locked.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled"
         )
@@ -352,7 +365,9 @@ async def change_password(
     auth: AuthContext = Depends(get_current_auth),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = auth.user
+    # Lock first: a login in flight either finishes before this (and is revoked
+    # below) or waits and finds the new password.
+    current_user = await crud.lock_user(db, auth.user.id) or auth.user
     if not await verify_password(body.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password"

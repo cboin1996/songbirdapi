@@ -5,7 +5,6 @@ from typing import Optional
 from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .sessions import RevokeReason
 from .models import (
     AudioFormat,
     AuthSession,
@@ -27,6 +26,7 @@ from .models import (
     UserSettings,
     UserSong,
 )
+from .sessions import RevokeReason
 
 
 async def get_song(db: AsyncSession, uuid: str) -> Optional[Song]:
@@ -190,6 +190,19 @@ async def update_user(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+async def lock_user(db: AsyncSession, user_id: str) -> Optional[User]:
+    """The user row, locked until the caller's transaction ends and read as it
+    is now. Logins, password changes and disables take it first, so they run one
+    at a time per user: a login cannot slip a session past a revoke-all."""
+    result = await db.execute(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return result.scalar_one_or_none()
 
 
 async def create_auth_session(db: AsyncSession, session: AuthSession) -> AuthSession:

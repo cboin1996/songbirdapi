@@ -67,6 +67,7 @@ docker exec songbirdapi-postgres psql -U songbirdapi -d postgres \
 
 ## Test isolation strategy
 
+- The integration client's `base_url` is `https://test`, not `http://test`: auth cookies are `Secure`, and httpx won't send a `Secure` cookie back over plain HTTP. A client on `http://test` silently loses its cookies.
 - One Postgres database (`songbirdapi_test`), one async engine, one session
   factory — created at conftest import time.
 - The FastAPI `lifespan` does **not** run under `httpx.ASGITransport`, so the

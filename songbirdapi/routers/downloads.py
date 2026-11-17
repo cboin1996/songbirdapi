@@ -50,6 +50,7 @@ class DownloadResponse(BaseModel):
     cached: bool = False
     properties: dict | None = None
     artwork_cached: bool = False
+    artwork_updated_at: int | None = None
 
 
 class DownloadCachedSong(BaseModel):
@@ -76,6 +77,7 @@ async def download(
             cached=True,
             properties=existing[0].properties,
             artwork_cached=existing[0].artwork_thumb is not None,
+            artwork_updated_at=existing[0].artwork_updated_at,
         )
 
     song_id = str(uuid.uuid4())
@@ -129,6 +131,7 @@ async def download(
         pass
 
     artwork_cached = False
+    artwork_updated_at = None
     if artwork_bytes:
         from ..artwork import store_artwork_from_bytes
 
@@ -137,14 +140,18 @@ async def download(
                 song_id, artwork_bytes, config.artwork_dir
             )
             if thumb or full:
-                await crud.update_song_artwork(db, song_id, thumb, full)
+                stored = await crud.update_song_artwork(db, song_id, thumb, full)
                 artwork_cached = True
+                artwork_updated_at = stored.artwork_updated_at if stored else None
         except Exception:
             pass
 
     logger.info(f"returning downloaded song {song_id}")
     return DownloadResponse(
-        song_ids={song_id}, properties=props, artwork_cached=artwork_cached
+        song_ids={song_id},
+        properties=props,
+        artwork_cached=artwork_cached,
+        artwork_updated_at=artwork_updated_at,
     )
 
 

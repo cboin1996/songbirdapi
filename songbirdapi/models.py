@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     Enum as SAEnum,
@@ -75,6 +76,13 @@ class Song(Base):
     properties: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     artwork_thumb: Mapped[str | None] = mapped_column(Text, nullable=True)
     artwork_full: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Epoch milliseconds of the last art write; null means the original art.
+    artwork_updated_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # When the song was first tagged through PUT /properties. After that, a song with
+    # no owner can be retagged only by an admin. Null: not tagged by a user yet.
+    tagged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     parent_song_id: Mapped[str | None] = mapped_column(
         Text, ForeignKey("songs.uuid", ondelete="SET NULL"), nullable=True
     )

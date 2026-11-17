@@ -67,6 +67,7 @@ Cross-device hint of which songs the user wants kept offline. Storage of the act
 | `GET` | `/{id}` | cookie | Single song with properties + artwork flag |
 | `POST` | `/{id}/play` | cookie | Record a play event (`song_plays`); UI fires after 30 s of continuous play |
 | `GET` | `/{id}/artwork/{size}` | cookie | Stream cached `thumb.jpg` or `full.jpg` |
+| `GET` | `/{id}/artwork/{size}/{version}` | none | Same art at a versioned URL. `version` is the song's `artwork_updated_at` (0 for the original). The current art is served whatever the version, so a stale URL still shows a picture. Cached art answers `Cache-Control: private, max-age=31536000, immutable`; a redirect to the iTunes art is not immutable. Web clients build this URL from `artwork_updated_at` (`/library`, `/explore`, playlists, drafts, `/download`, share). |
 | `POST` | `/{id}/artwork` | cookie | Upload artwork bytes (validated magic bytes; resized via Pillow) |
 
 ## properties — `/v1/properties` (`routers/properties.py`)
@@ -79,7 +80,7 @@ All endpoints require `cookie` (declared on the router).
 | `GET` | `` | List songs (paginated) for the tagging UI |
 | `GET` | `/{song_id}/eligible` | Detailed eligibility — community publish bar, used by editor & library |
 | `GET` | `/{id}` | Get one song's properties |
-| `PUT` | `` | Update a song's `properties`; triggers background artwork fetch |
+| `PUT` | `` | Update a song's `properties`; triggers background artwork fetch. **Retag rule:** the first tag sets `tagged_at`; after that, only the owner or an admin may retag. A non-admin may first-tag an owner-less song (the claim is atomic: of two racing first tags, one gets 200 and the other 403 "Only an admin can retag a shared song"). Publishing a song counts as a tag. |
 
 ## download — `/v1/download` (`routers/downloads.py`)
 
@@ -157,3 +158,7 @@ Web client persists every queue mutation including queue sources (context of whe
 ## Schemas
 
 For request bodies, response models, status codes, validation rules, and field types, **always check `/docs`**. Pydantic models in each router (`LoginBody`, `DownloadBody`, `EditJobResponse`, etc.) are exported into the OpenAPI document at runtime.
+
+## Migrations in this release
+
+Two Alembic revisions, applied by `alembic upgrade head` before the API starts: `c4e5f6a7b8c9` adds `songs.artwork_updated_at` (epoch ms of the last art write; null means the original art, served as version 0) and `d5f6a7b8c9d0` adds `songs.tagged_at` (songs that already carry properties are set to their `created_at`, so they count as tagged). `artwork_updated_at` is also returned on drafts (`DraftSummaryResponse`) and downloads (`DownloadResponse`).

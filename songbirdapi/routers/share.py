@@ -28,6 +28,7 @@ class ShareInfoResponse(BaseModel):
     expires_at: str
     song_id: str
     properties: dict | None
+    artwork_updated_at: int | None = None
 
 
 @router.post("/songs/{song_id}", response_model=ShareTokenResponse)
@@ -64,14 +65,11 @@ async def get_share_info(token: str, db: AsyncSession = Depends(get_db)):
         expires_at=entry.expires_at.isoformat(),
         song_id=song.uuid,
         properties=song.properties,
+        artwork_updated_at=song.artwork_updated_at,
     )
 
 
-@router.get("/{token}/artwork/{size}")
-async def get_share_artwork(
-    token: str,
-    size: Literal["thumb", "full"] = "full",
-):
+async def _serve_share_artwork(token: str, size: str, headers: dict | None = None):
     # Release session before serving the file — see get_download.
     async with session_scope() as db:
         entry = await crud.get_share_token(db, token)
@@ -87,13 +85,33 @@ async def get_share_artwork(
         itunes_url = (song.properties or {}).get("artworkUrl100", "")
 
     if path and os.path.exists(path):
-        return FileResponse(path, media_type="image/jpeg")
+        return FileResponse(path, media_type="image/jpeg", headers=headers)
     if itunes_url:
         target_size = "200x200bb" if size == "thumb" else "600x600bb"
         return RedirectResponse(
             url=itunes_url.replace("100x100bb", target_size), status_code=302
         )
     raise HTTPException(status_code=404, detail="Artwork not cached")
+
+
+@router.get("/{token}/artwork/{size}")
+async def get_share_artwork(
+    token: str,
+    size: Literal["thumb", "full"] = "full",
+):
+    return await _serve_share_artwork(token, size)
+
+
+# Versioned like the song route: see songs.get_artwork_versioned.
+@router.get("/{token}/artwork/{size}/{version}")
+async def get_share_artwork_versioned(
+    token: str,
+    size: Literal["thumb", "full"],
+    version: int,
+):
+    return await _serve_share_artwork(
+        token, size, headers={"Cache-Control": "private, max-age=31536000, immutable"}
+    )
 
 
 @router.get("/{token}/download")

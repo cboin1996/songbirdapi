@@ -39,6 +39,7 @@ class SongResponse(BaseModel):
     owner_id: Optional[str] = None
     source: Optional[str] = None
     artwork_cached: bool = False
+    artwork_updated_at: int | None = None
 
     model_config = {"from_attributes": True}
 
@@ -54,6 +55,7 @@ class SongResponse(BaseModel):
                 "owner_id": data.owner_id,
                 "source": getattr(data, "source", None),
                 "artwork_cached": data.artwork_thumb is not None,
+                "artwork_updated_at": data.artwork_updated_at,
             }
         return data
 
@@ -177,6 +179,7 @@ async def put_properties(
     # the writes. Holding a session across blocking tagger calls pins a
     # pool connection for hundreds of ms per save and exhausts the pool
     # under concurrent edits.
+    claimed = False
     async with session_scope() as db:
         song = await crud.get_song(db, body.song_id)
         if not song:
@@ -191,39 +194,63 @@ async def put_properties(
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=msg
             )
+        # A shared song (no owner) is open to its first tag; after that, and for
+        # any song owned by someone else, only an admin may change it. The same
+        # rule guards the art, which a tag can replace.
+        if current_user.role != Role.admin:
+            if song.owner_id and song.owner_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                )
+            if not song.owner_id:
+                # Check and claim in one statement, so two first tags racing
+                # cannot both pass.
+                claimed = await crud.claim_first_tag(db, body.song_id)
+                if not claimed:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Only an admin can retag a shared song",
+                    )
         file_path = song.file_path
         existing_artwork_url = (song.properties or {}).get("artworkUrl100", "")
 
-    artwork_url = body.properties.artworkUrl100 or ""
-    if not artwork_url.startswith("http"):
-        artwork_url = existing_artwork_url
+    try:
+        artwork_url = body.properties.artworkUrl100 or ""
+        if not artwork_url.startswith("http"):
+            artwork_url = existing_artwork_url
 
-    ext = os.path.splitext(file_path)[1].lower()
-    if artwork_url.startswith("http"):
-        props_for_tagging = body.properties.model_copy(
-            update={"artworkUrl100": artwork_url}
-        )
-        tagger = itunes.mp3ID3Tagger if ext == ".mp3" else itunes.m4a_tagger
-        result = await asyncio.to_thread(tagger, file_path, props_for_tagging)
-    else:
-        tagger = (
-            itunes.mp3ID3TaggerNoArtwork
-            if ext == ".mp3"
-            else itunes.m4aID3TaggerNoArtwork
-        )
-        result = await asyncio.to_thread(tagger, file_path, body.properties)
+        ext = os.path.splitext(file_path)[1].lower()
+        if artwork_url.startswith("http"):
+            props_for_tagging = body.properties.model_copy(
+                update={"artworkUrl100": artwork_url}
+            )
+            tagger = itunes.mp3ID3Tagger if ext == ".mp3" else itunes.m4a_tagger
+            result = await asyncio.to_thread(tagger, file_path, props_for_tagging)
+        else:
+            tagger = (
+                itunes.mp3ID3TaggerNoArtwork
+                if ext == ".mp3"
+                else itunes.m4aID3TaggerNoArtwork
+            )
+            result = await asyncio.to_thread(tagger, file_path, body.properties)
 
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Could not tag file with properties from body {body.properties.model_dump_json()}",
-        )
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Could not tag file with properties from body {body.properties.model_dump_json()}",
+            )
+    except BaseException:
+        # The tag failed: hand the first-tag claim back.
+        if claimed:
+            async with session_scope() as db:
+                await crud.release_tag_claim(db, body.song_id)
+        raise
 
     props = body.properties.model_dump()
     props["collectionId"] = str(props["collectionId"])
 
     async with session_scope() as db:
-        await crud.update_song_properties(db, body.song_id, props)
+        await crud.update_song_properties(db, body.song_id, props, mark_tagged=True)
         song = await crud.get_song(db, body.song_id)
         if (
             song

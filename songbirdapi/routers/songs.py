@@ -21,6 +21,7 @@ class SongResponse(BaseModel):
     url: str
     properties: dict | None
     artwork_cached: bool = False
+    artwork_updated_at: int | None = None
     owner_id: str | None = None
     root_song_id: str | None = None
     parent_song_id: str | None = None
@@ -37,6 +38,7 @@ class SongResponse(BaseModel):
                 "url": data.url,
                 "properties": data.properties,
                 "artwork_cached": data.artwork_thumb is not None,
+                "artwork_updated_at": data.artwork_updated_at,
                 "owner_id": data.owner_id,
                 "root_song_id": getattr(data, "root_song_id", None),
                 "parent_song_id": getattr(data, "parent_song_id", None),
@@ -57,6 +59,7 @@ class SongWithCount(BaseModel):
     count: int
     source: str | None = None
     artwork_cached: bool = False
+    artwork_updated_at: int | None = None
 
 
 class RecentlyPlayedSong(BaseModel):
@@ -64,6 +67,7 @@ class RecentlyPlayedSong(BaseModel):
     properties: dict | None
     last_played_at: str
     artwork_cached: bool = False
+    artwork_updated_at: int | None = None
 
 
 class RecentlySavedSong(BaseModel):
@@ -71,6 +75,7 @@ class RecentlySavedSong(BaseModel):
     properties: dict | None
     added_at: str
     artwork_cached: bool = False
+    artwork_updated_at: int | None = None
 
 
 class RecentlyAddedSong(BaseModel):
@@ -78,6 +83,7 @@ class RecentlyAddedSong(BaseModel):
     url: str
     properties: dict | None
     artwork_cached: bool = False
+    artwork_updated_at: int | None = None
     added_at: str
     source: str | None = None
 
@@ -141,6 +147,7 @@ async def explore(
             added_at=s.created_at.isoformat(),
             source=s.source,
             artwork_cached=s.artwork_thumb is not None,
+            artwork_updated_at=s.artwork_updated_at,
         )
         for s in recently_added_songs
     ]
@@ -179,11 +186,10 @@ async def record_play(
     await crud.record_play(db, id, current_user.id)
 
 
-@router.get("/{id}/artwork/{size}")
-async def get_artwork(
-    id: str,
-    size: Literal["thumb", "full"] = "full",
-):
+IMMUTABLE_ART = {"Cache-Control": "private, max-age=31536000, immutable"}
+
+
+async def _serve_artwork(id: str, size: str, headers: dict | None = None):
     from fastapi.responses import RedirectResponse
 
     # Release the session before serving the file — see get_download in
@@ -204,7 +210,7 @@ async def get_artwork(
         itunes_url = (song.properties or {}).get("artworkUrl100", "")
 
     if path and os.path.exists(path):
-        return FileResponse(path, media_type="image/jpeg")
+        return FileResponse(path, media_type="image/jpeg", headers=headers)
     if itunes_url:
         target_size = "200x200bb" if size == "thumb" else "600x600bb"
         return RedirectResponse(
@@ -213,6 +219,29 @@ async def get_artwork(
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND, detail="Artwork not cached"
     )
+
+
+@router.get("/{id}/artwork/{size}")
+async def get_artwork(
+    id: str,
+    size: Literal["thumb", "full"] = "full",
+):
+    return await _serve_artwork(id, size)
+
+
+# The version is only part of the URL: it changes when the art is replaced, so a
+# cached copy of the old URL can never be mistaken for the new art. Whatever
+# version is asked for, the current art is served, and a stale URL (old tab,
+# saved copy) still shows a picture. A redirect to the iTunes art is not
+# immutable: its target can change.
+@router.get("/{id}/artwork/{size}/{version}")
+async def get_artwork_versioned(
+    id: str,
+    size: Literal["thumb", "full"],
+    version: int,
+):
+    resp = await _serve_artwork(id, size, headers=IMMUTABLE_ART)
+    return resp
 
 
 @router.post("/{id}/artwork", status_code=200)
@@ -233,6 +262,15 @@ async def upload_artwork(
             and current_user.role.value != "admin"
         ):
             raise HTTPException(status_code=403, detail="Forbidden")
+        # A shared song takes its first art from anyone; replacing it is for admins.
+        if (
+            not song.owner_id
+            and (song.artwork_thumb or song.artwork_full)
+            and current_user.role.value != "admin"
+        ):
+            raise HTTPException(
+                status_code=403, detail="Only an admin can replace shared art"
+            )
 
     MAX_ARTWORK_BYTES = 10 * 1024 * 1024  # 10 MB
     if file.size is not None and file.size > MAX_ARTWORK_BYTES:

@@ -158,6 +158,10 @@ docker-compose up -d songbirdapi
 ```
 Do not roll back by re-running the old tag's deploy workflow, and do not run `alembic upgrade head` with the old image: it fails with `No such revision` because the database is already at the session migration, and `set -e` stops the deploy before the image switches. Afterwards, unpin the old tag. Run `alembic downgrade` only when a migration changes data the old code reads. The session migration is not one: the old image ignores `auth_sessions`, and startup `create_all` leaves the existing table alone. A downgrade would drop the table, and while it runs the new container, if still up, answers every authenticated request with a 500.
 
+## Rollback with the artwork and retag migrations
+
+The release adds `songs.artwork_updated_at` and `songs.tagged_at`. Both are additive and nullable, so an older API image keeps running on the migrated database (it ignores the columns), and rolling back needs no `alembic downgrade`. Do not run the old image's `alembic upgrade head`; the database is at a newer revision than that image knows. Deploy order across repos is `songbirdcore` → `songbirdapi` → `songbirdweb`: the web app asks for the versioned artwork route, which only the new API serves.
+
 ## Sessions: deploy, rollback, risks
 
 - **Deploy order: either.** The new web middleware works against the old API (it forwards the rotated cookie only if the API sends one). The new API with the old middleware also works: the old middleware drops the rotated refresh cookie, so the browser keeps presenting the token it already had, which the API treats as a replay or a branch and never as reuse. It costs a few extra branches until web ships, so the release command's API-first order is fine.

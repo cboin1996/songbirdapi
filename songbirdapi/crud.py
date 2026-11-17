@@ -1,3 +1,4 @@
+import time
 import uuid as _uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -56,17 +57,41 @@ async def update_song_artwork(
         song.artwork_thumb = thumb_path
     if full_path is not None:
         song.artwork_full = full_path
+    # The version that art URLs carry. Set here, the one function every art
+    # writer calls. Strictly increasing, so two writes in one millisecond differ.
+    now = int(time.time() * 1000)
+    song.artwork_updated_at = max(now, (song.artwork_updated_at or 0) + 1)
     await db.commit()
     return song
 
 
+async def claim_first_tag(db: AsyncSession, uuid: str) -> bool:
+    """Atomically take the first tag of a shared song. False if already tagged."""
+    result = await db.execute(
+        update(Song)
+        .where(Song.uuid == uuid, Song.tagged_at.is_(None))
+        .values(tagged_at=datetime.now(timezone.utc))
+    )
+    await db.commit()
+    return result.rowcount == 1
+
+
+async def release_tag_claim(db: AsyncSession, uuid: str) -> None:
+    await db.execute(update(Song).where(Song.uuid == uuid).values(tagged_at=None))
+    await db.commit()
+
+
 async def update_song_properties(
-    db: AsyncSession, uuid: str, properties: dict
+    db: AsyncSession, uuid: str, properties: dict, mark_tagged: bool = False
 ) -> Optional[Song]:
     song = await get_song(db, uuid)
     if not song:
         return None
     song.properties = properties
+    # Only a user's tag counts, not the tags read from a fresh download. The first
+    # one stays: it is the moment a shared song stopped being open to everyone.
+    if mark_tagged and song.tagged_at is None:
+        song.tagged_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(song)
     return song
@@ -107,6 +132,10 @@ async def publish_song(
     if song:
         song.owner_id = None
         song.source = None if as_original else "community"
+        # The owner chose this metadata: publishing counts as the first tag, so a
+        # shared song is not open to a non-admin retag afterwards.
+        if song.tagged_at is None:
+            song.tagged_at = datetime.now(timezone.utc)
         await db.commit()
 
 
@@ -341,6 +370,7 @@ async def list_library_with_songs(db: AsyncSession, user_id: str) -> list[dict]:
             "url": song.url,
             "properties": song.properties,
             "artwork_cached": song.artwork_thumb is not None,
+            "artwork_updated_at": song.artwork_updated_at,
             "parent_song_id": song.parent_song_id,
             "root_song_id": song.root_song_id,
             "owner_id": song.owner_id,
@@ -493,6 +523,7 @@ async def get_popular_songs(
             "count": c,
             "source": s.source,
             "artwork_cached": s.artwork_thumb is not None,
+            "artwork_updated_at": s.artwork_updated_at,
         }
         for s, c in result.all()
     ]
@@ -520,6 +551,7 @@ async def get_popular_downloads(
             "count": c,
             "source": s.source,
             "artwork_cached": s.artwork_thumb is not None,
+            "artwork_updated_at": s.artwork_updated_at,
         }
         for s, c in result.all()
     ]
@@ -563,6 +595,7 @@ async def get_most_libraryed(
             "count": c,
             "source": s.source,
             "artwork_cached": s.artwork_thumb is not None,
+            "artwork_updated_at": s.artwork_updated_at,
         }
         for s, c in result.all()
     ]
@@ -590,6 +623,7 @@ async def get_user_most_played(
             "count": c,
             "source": s.source,
             "artwork_cached": s.artwork_thumb is not None,
+            "artwork_updated_at": s.artwork_updated_at,
         }
         for s, c in result.all()
     ]
@@ -615,6 +649,7 @@ async def get_user_recently_played(
             "properties": s.properties,
             "last_played_at": lp.isoformat(),
             "artwork_cached": s.artwork_thumb is not None,
+            "artwork_updated_at": s.artwork_updated_at,
         }
         for s, lp in result.all()
     ]
@@ -665,6 +700,7 @@ async def get_community_popular(
             "count": c,
             "source": s.source,
             "artwork_cached": s.artwork_thumb is not None,
+            "artwork_updated_at": s.artwork_updated_at,
         }
         for s, c in result.all()
     ]
@@ -690,6 +726,7 @@ async def get_user_recently_saved(
             "properties": s.properties,
             "added_at": at.isoformat(),
             "artwork_cached": s.artwork_thumb is not None,
+            "artwork_updated_at": s.artwork_updated_at,
         }
         for s, at in result.all()
     ]
@@ -717,6 +754,7 @@ async def get_user_most_downloaded(
             "count": c,
             "source": s.source,
             "artwork_cached": s.artwork_thumb is not None,
+            "artwork_updated_at": s.artwork_updated_at,
         }
         for s, c in result.all()
     ]
@@ -881,6 +919,7 @@ async def list_user_drafts(db: AsyncSession, user_id: str) -> list[dict]:
             "song_id": draft.song_id,
             "properties": song.properties,
             "artwork_cached": song.artwork_thumb is not None,
+            "artwork_updated_at": song.artwork_updated_at,
             "updated_at": draft.updated_at.isoformat(),
         }
         for draft, song in result.all()

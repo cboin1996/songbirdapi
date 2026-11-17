@@ -63,9 +63,12 @@ def song_play_path(song_id: str) -> str:
     return f"{V1}/songs/{song_id}/play"
 
 
-def song_artwork_path(song_id: str, size: str | int = "") -> str:
+def song_artwork_path(
+    song_id: str, size: str | int = "", version: int | None = None
+) -> str:
     base = f"{V1}/songs/{song_id}/artwork"
-    return f"{base}/{size}" if size else base
+    path = f"{base}/{size}" if size else base
+    return f"{path}/{version}" if size and version is not None else path
 
 
 def songs_explore_path(window: str) -> str:

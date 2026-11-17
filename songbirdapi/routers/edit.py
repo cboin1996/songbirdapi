@@ -13,6 +13,7 @@ from .. import database
 from ..dependencies import get_current_user, get_db, load_settings
 from ..models import EditJobStatus, Role, Song, User
 from .. import crud
+from ..artwork import copy_artwork
 from ..editor import apply_edits, _is_lossless_eligible
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -118,6 +119,7 @@ async def _run_edit_job(
         source_url = source.url
         source_owner_id = source.owner_id
         source_artwork_thumb = source.artwork_thumb
+        source_artwork_updated_at = source.artwork_updated_at
         source_artwork_full = source.artwork_full
         source_parent_song_id = source.parent_song_id
         source_properties = source.properties
@@ -168,13 +170,21 @@ async def _run_edit_job(
             if merged_props is not None:
                 await asyncio.to_thread(_retag_file, dest_path, merged_props)
             async with database.session_scope() as db:
+                copy_thumb, copy_full = await asyncio.to_thread(
+                    copy_artwork,
+                    source_artwork_thumb,
+                    source_artwork_full,
+                    new_uuid,
+                    _config.artwork_dir,
+                )
                 new_song = Song(
                     uuid=new_uuid,
                     url=source_url,
                     file_path=dest_path,
                     properties=final_props,
-                    artwork_thumb=source_artwork_thumb,
-                    artwork_full=source_artwork_full,
+                    artwork_thumb=copy_thumb,
+                    artwork_full=copy_full,
+                    artwork_updated_at=source_artwork_updated_at,
                     parent_song_id=source_song_id,
                     root_song_id=root_id,
                     owner_id=user_id,
@@ -263,6 +273,7 @@ class DraftSummaryResponse(BaseModel):
     song_id: str
     properties: dict | None
     artwork_cached: bool
+    artwork_updated_at: int | None = None
     updated_at: str
 
 

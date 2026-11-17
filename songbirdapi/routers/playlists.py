@@ -135,6 +135,7 @@ async def get_playlist_songs(
             "url": s.url,
             "properties": s.properties,
             "artwork_cached": s.artwork_thumb is not None,
+            "artwork_updated_at": s.artwork_updated_at,
             "owner_id": s.owner_id,
         }
         for s in songs
